@@ -25,10 +25,10 @@ namespace NekoSerialize
         private readonly string[] tabs = { "Data View", "JSON View" };
         private string rawJsonData = "";
 
-        [MenuItem("Tools/Neko Indie/Serialize/Local Save Data")]
+        [MenuItem("Tools/Neko Framework/Save Load Storage Window")]
         private static void OpenWindow()
         {
-            GetWindow<SaveLoadStorageWindow>("Local Save Data").Show();
+            GetWindow<SaveLoadStorageWindow>("Save Load Storage Window").Show();
         }
 
         void OnEnable()
