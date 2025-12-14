@@ -8,11 +8,8 @@ namespace NekoSerialize
     public class SaveLoadSettingsInspector : Editor
     {
         private SerializedProperty _saveLocationProp;
-        private SerializedProperty _fileNameProp;
         private SerializedProperty _folderNameProp;
-        private SerializedProperty _playerPrefsKeyProp;
-        private SerializedProperty _autoSaveIntervalProp;
-        private SerializedProperty _autoSaveOnFocusLostProp;
+        private SerializedProperty _zipIdProp;
         private SerializedProperty _useEncryptionProp;
         private SerializedProperty _encryptionKeyProp;
         private SerializedProperty _prettyPrintJsonProp;
@@ -20,11 +17,8 @@ namespace NekoSerialize
         private void OnEnable()
         {
             _saveLocationProp = serializedObject.FindProperty("<SaveLocation>k__BackingField");
-            _fileNameProp = serializedObject.FindProperty("<FileName>k__BackingField");
             _folderNameProp = serializedObject.FindProperty("<FolderName>k__BackingField");
-            _playerPrefsKeyProp = serializedObject.FindProperty("<PlayerPrefsKey>k__BackingField");
-            _autoSaveIntervalProp = serializedObject.FindProperty("<AutoSaveInterval>k__BackingField");
-            _autoSaveOnFocusLostProp = serializedObject.FindProperty("<AutoSaveOnFocusLost>k__BackingField");
+            _zipIdProp = serializedObject.FindProperty("<ZipId>k__BackingField");
             _useEncryptionProp = serializedObject.FindProperty("<UseEncryption>k__BackingField");
             _encryptionKeyProp = serializedObject.FindProperty("<EncryptionKey>k__BackingField");
             _prettyPrintJsonProp = serializedObject.FindProperty("<PrettyPrintJson>k__BackingField");
@@ -42,21 +36,12 @@ namespace NekoSerialize
             var saveLocation = (SaveLocation)_saveLocationProp.enumValueIndex;
 
             // Conditional settings based on save location
+            EditorGUILayout.PropertyField(_zipIdProp, new GUIContent("Archive/Zip Id"));
+
             if (saveLocation == SaveLocation.JsonFile)
             {
-                EditorGUILayout.PropertyField(_fileNameProp, new GUIContent("File Name"));
                 EditorGUILayout.PropertyField(_folderNameProp, new GUIContent("Folder Name"));
             }
-
-            if (saveLocation == SaveLocation.PlayerPrefs)
-            {
-                EditorGUILayout.PropertyField(_playerPrefsKeyProp, new GUIContent("PlayerPrefs Key"));
-            }
-
-            EditorGUILayout.Space();
-            EditorGUILayout.LabelField("Auto Save", EditorStyles.boldLabel);
-            EditorGUILayout.PropertyField(_autoSaveIntervalProp, new GUIContent("Auto Save Interval"));
-            EditorGUILayout.PropertyField(_autoSaveOnFocusLostProp, new GUIContent("Auto Save On Focus Lost"));
 
             EditorGUILayout.Space();
             EditorGUILayout.LabelField("Security", EditorStyles.boldLabel);
@@ -76,8 +61,8 @@ namespace NekoSerialize
             EditorGUILayout.Space();
             string hint = saveLocation switch
             {
-                SaveLocation.PlayerPrefs => "PlayerPrefs: Data saved to registry (Windows) or plist (Mac). Best for simple settings.",
-                SaveLocation.JsonFile => "JSON File: Data saved to persistent data path as JSON. Best for complex save data.",
+                SaveLocation.PlayerPrefs => "PlayerPrefs: Values are saved per key. Zip Id is used as a key prefix/namespace.",
+                SaveLocation.JsonFile => "JSON File: Values are saved per key as separate JSON files in the folder. Zip Id is for archive/cloud grouping.",
                 _ => ""
             };
 

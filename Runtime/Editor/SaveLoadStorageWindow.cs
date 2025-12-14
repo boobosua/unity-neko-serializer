@@ -25,10 +25,10 @@ namespace NekoSerialize
         private readonly string[] tabs = { "Data View", "JSON View" };
         private string rawJsonData = "";
 
-        [MenuItem("Tools/Neko Framework/Save Load Storage Window")]
+        [MenuItem("Tools/Neko Framework/Client Data Editor")]
         private static void OpenWindow()
         {
-            GetWindow<SaveLoadStorageWindow>("Save Load Storage Window").Show();
+            GetWindow<SaveLoadStorageWindow>("Client Data Editor").Show();
         }
 
         void OnEnable()
@@ -44,10 +44,9 @@ namespace NekoSerialize
 
         void OnEditorUpdate()
         {
-            if (Application.isPlaying && SaveLoadService.IsInitialized)
-            {
-                Refresh();
-            }
+            if (!Application.isPlaying)
+                return;
+            Refresh();
         }
 
         void OnGUI()
@@ -77,13 +76,6 @@ namespace NekoSerialize
                 EditorGUILayout.HelpBox("Enter Play Mode to view and manage save data in Data View.", MessageType.Info);
                 return false;
             }
-
-            if (!SaveLoadService.IsInitialized)
-            {
-                EditorGUILayout.HelpBox("SaveLoadService is not initialized.", MessageType.Warning);
-                return false;
-            }
-
             return true;
         }
 
@@ -157,7 +149,7 @@ namespace NekoSerialize
             }
 
             // Delete All only available in play mode for Data View - RED BUTTON
-            if (selectedTab == 0 && Application.isPlaying && SaveLoadService.IsInitialized)
+            if (selectedTab == 0 && Application.isPlaying)
             {
                 DrawRedButton("Delete All", DeleteAll, GUILayout.Height(30));
             }
@@ -271,8 +263,8 @@ namespace NekoSerialize
 
         private void DisplayJsonView()
         {
-            // Load data directly from storage if not in play mode or service not initialized
-            if (!Application.isPlaying || !SaveLoadService.IsInitialized)
+            // Load data directly from storage if not in play mode
+            if (!Application.isPlaying)
             {
                 LoadDataDirectlyFromStorage();
             }
@@ -628,10 +620,10 @@ namespace NekoSerialize
 
         public void Refresh()
         {
-            if (!Application.isPlaying || !SaveLoadService.IsInitialized)
+            if (!Application.isPlaying)
                 return;
 
-            currentSaveData = SaveLoadService.GetAllSaveData();
+            currentSaveData = GetDirectStorageData();
             UpdateRawJsonData();
             Repaint();
         }
@@ -692,17 +684,16 @@ namespace NekoSerialize
         {
             try
             {
-                if (PlayerPrefs.HasKey(settings.PlayerPrefsKey))
+                var handler = new PlayerPrefsHandler(settings);
+                var result = new Dictionary<string, object>();
+                foreach (var key in handler.Keys())
                 {
-                    var json = PlayerPrefs.GetString(settings.PlayerPrefsKey);
-                    if (!string.IsNullOrEmpty(json))
+                    if (handler.TryLoad<object>(key, out var value))
                     {
-                        // Decrypt if necessary (simplified - we'll skip encryption handling for now)
-                        var jsonSettings = JsonSerializerUtils.GetSettings();
-                        var data = JsonConvert.DeserializeObject<Dictionary<string, object>>(json, jsonSettings);
-                        return data ?? new Dictionary<string, object>();
+                        result[key] = value;
                     }
                 }
+                return result;
             }
             catch (System.Exception e)
             {
@@ -716,18 +707,16 @@ namespace NekoSerialize
         {
             try
             {
-                var filePath = Path.Combine(Application.persistentDataPath, settings.FileName);
-                if (File.Exists(filePath))
+                var handler = new SingleJsonFileHandler(settings);
+                var result = new Dictionary<string, object>();
+                foreach (var key in handler.Keys())
                 {
-                    var json = File.ReadAllText(filePath);
-                    if (!string.IsNullOrEmpty(json))
+                    if (handler.TryLoad<object>(key, out var value))
                     {
-                        // Decrypt if necessary (simplified - we'll skip encryption handling for now)
-                        var jsonSettings = JsonSerializerUtils.GetSettings();
-                        var data = JsonConvert.DeserializeObject<Dictionary<string, object>>(json, jsonSettings);
-                        return data ?? new Dictionary<string, object>();
+                        result[key] = value;
                     }
                 }
+                return result;
             }
             catch (System.Exception e)
             {
@@ -751,7 +740,7 @@ namespace NekoSerialize
 
         public void DeleteAll()
         {
-            if (!Application.isPlaying || !SaveLoadService.IsInitialized)
+            if (!Application.isPlaying)
                 return;
 
             const string title = "Delete All";
@@ -761,7 +750,14 @@ namespace NekoSerialize
 
             if (EditorUtility.DisplayDialog(title, message, ok, cancel))
             {
-                SaveLoadService.DeleteAllData();
+                var settings = LoadSettingsDirectly();
+                SaveDataHandler handler = settings.SaveLocation switch
+                {
+                    SaveLocation.PlayerPrefs => new PlayerPrefsHandler(settings),
+                    SaveLocation.JsonFile => new SingleJsonFileHandler(settings),
+                    _ => new PlayerPrefsHandler(settings)
+                };
+                handler.DeleteAll();
                 RestartGame();
             }
         }

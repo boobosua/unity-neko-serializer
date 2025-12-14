@@ -1,9 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using NekoLib.Core;
-using NekoLib.Extensions;
-using NekoLib.Logger;
+using System.Linq;
 using UnityEngine;
 
 namespace NekoSerialize
@@ -15,70 +13,64 @@ namespace NekoSerialize
     {
         public SingleJsonFileHandler(SaveLoadSettings settings) : base(settings) { }
 
-        private string SavePath => Path.Combine(Application.persistentDataPath, _settings.FileName);
+        private string SaveDirectory => Path.Combine(Application.persistentDataPath, _settings.FolderName);
 
-        /// <summary>
-        /// Saves the given data to a JSON file.
-        /// </summary>
-        public override void WriteData(Dictionary<string, object> data)
+        private string GetFilePath(string key)
         {
-            try
+            return Path.Combine(SaveDirectory, $"{key}.json");
+        }
+
+        protected override void SaveString(string key, string value)
+        {
+            Directory.CreateDirectory(SaveDirectory);
+            File.WriteAllText(GetFilePath(key), value);
+        }
+
+        protected override bool TryLoadString(string key, out string value)
+        {
+            var path = GetFilePath(key);
+            if (!File.Exists(path))
             {
-                var json = SerializeData(data);
-                File.WriteAllText(SavePath, json);
-                Log.Info($"[SingleJsonFileHandler] Data saved to: {SavePath.Colorize(Swatch.DE)}");
+                value = default;
+                return false;
             }
-            catch (Exception e)
+
+            value = File.ReadAllText(path);
+            return true;
+        }
+
+        protected override void DeleteString(string key)
+        {
+            var path = GetFilePath(key);
+            if (File.Exists(path))
             {
-                Log.Error($"[SingleJsonFileHandler] Error saving data: {e.Message.Colorize(Swatch.VR)}");
+                File.Delete(path);
             }
         }
 
-        /// <summary>
-        /// Loads the saved data from a JSON file.
-        /// </summary>
-        public override Dictionary<string, object> ReadData()
+        public override IEnumerable<string> Keys()
         {
-            try
-            {
-                if (File.Exists(SavePath))
-                {
-                    var json = File.ReadAllText(SavePath);
-                    var data = DeserializeData<Dictionary<string, object>>(json);
-                    Log.Info($"[SingleJsonFileHandler] Data loaded from: {SavePath.Colorize(Swatch.DE)}");
-                    return data ?? new();
-                }
-                else
-                {
-                    Log.Warn($"[SingleJsonFileHandler] No save file found, starting fresh.");
-                    return new();
-                }
-            }
-            catch (Exception e)
-            {
-                Log.Error($"[SingleJsonFileHandler] Error loading data: {e.Message.Colorize(Swatch.VR)}");
-                return new();
-            }
+            if (!Directory.Exists(SaveDirectory))
+                return Array.Empty<string>();
+
+            var files = Directory.EnumerateFiles(SaveDirectory, "*.json", SearchOption.TopDirectoryOnly);
+            return files.Select(file => Path.GetFileNameWithoutExtension(file));
         }
 
-        /// <summary>
-        /// Deletes the saved data file.
-        /// </summary>
-        public override void DeleteData()
+        public override bool Exists(string key)
         {
-            if (File.Exists(SavePath))
-            {
-                File.Delete(SavePath);
-                Log.Info($"[SingleJsonFileHandler] Save file deleted.");
-            }
+            return File.Exists(GetFilePath(key));
         }
 
-        /// <summary>
-        /// Checks if the save data file exists.
-        /// </summary>
-        public override bool DataExists()
+        public override void DeleteAll()
         {
-            return File.Exists(SavePath);
+            if (!Directory.Exists(SaveDirectory))
+                return;
+
+            foreach (var file in Directory.EnumerateFiles(SaveDirectory, "*.json", SearchOption.TopDirectoryOnly))
+            {
+                File.Delete(file);
+            }
         }
     }
 }

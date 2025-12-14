@@ -11,7 +11,7 @@ namespace NekoSerialize
         private SerializedObject _serializedSettings;
         private Vector2 _scrollPosition;
 
-        [MenuItem("Tools/Neko Indie/Serialize/Settings")]
+        [MenuItem("Tools/Neko Framework/Serialize Settings")]
         public static void ShowWindow()
         {
             var window = GetWindow<SaveLoadSettingsWindow>("Save Load Settings");
@@ -99,11 +99,7 @@ namespace NekoSerialize
                 EditorUtility.SetDirty(_settings);
                 AssetDatabase.SaveAssets();
 
-                // Refresh the service if it's initialized
-                if (Application.isPlaying)
-                {
-                    SaveLoadService.RefreshSettings();
-                }
+                // No runtime service refresh needed (direct-to-storage model)
             }
 
             EditorGUILayout.Space();
@@ -122,21 +118,12 @@ namespace NekoSerialize
             var saveLocation = (SaveLocation)_serializedSettings.FindProperty("<SaveLocation>k__BackingField").enumValueIndex;
 
             // Conditional settings based on save location
+            EditorGUILayout.PropertyField(_serializedSettings.FindProperty("<ZipId>k__BackingField"), new GUIContent("Archive/Zip Id"));
+
             if (saveLocation == SaveLocation.JsonFile)
             {
-                EditorGUILayout.PropertyField(_serializedSettings.FindProperty("<FileName>k__BackingField"), new GUIContent("File Name"));
                 EditorGUILayout.PropertyField(_serializedSettings.FindProperty("<FolderName>k__BackingField"), new GUIContent("Folder Name"));
             }
-
-            if (saveLocation == SaveLocation.PlayerPrefs)
-            {
-                EditorGUILayout.PropertyField(_serializedSettings.FindProperty("<PlayerPrefsKey>k__BackingField"), new GUIContent("PlayerPrefs Key"));
-            }
-
-            EditorGUILayout.Space();
-            EditorGUILayout.LabelField("Auto Save", EditorStyles.boldLabel);
-            EditorGUILayout.PropertyField(_serializedSettings.FindProperty("<AutoSaveInterval>k__BackingField"), new GUIContent("Auto Save Interval"));
-            EditorGUILayout.PropertyField(_serializedSettings.FindProperty("<AutoSaveOnFocusLost>k__BackingField"), new GUIContent("Auto Save On Focus Lost"));
 
             EditorGUILayout.Space();
             EditorGUILayout.LabelField("Security", EditorStyles.boldLabel);
@@ -179,22 +166,20 @@ namespace NekoSerialize
 
                 EditorGUILayout.BeginHorizontal();
 
-                if (GUILayout.Button("Save All"))
-                {
-                    SaveLoadService.SaveAll();
-                }
-
-                EditorGUILayout.EndHorizontal();
-
-                EditorGUILayout.BeginHorizontal();
-
                 if (GUILayout.Button("Delete All & Reload"))
                 {
                     if (EditorUtility.DisplayDialog("Delete All Save Data",
                         "Are you sure you want to delete all save data and reload the scene? This cannot be undone.",
                         "Delete & Reload", "Cancel"))
                     {
-                        SaveLoadService.DeleteAllData();
+                        var settings = Resources.Load<SaveLoadSettings>("SaveLoadSettings") ?? CreateInstance<SaveLoadSettings>();
+                        SaveDataHandler handler = settings.SaveLocation switch
+                        {
+                            SaveLocation.PlayerPrefs => new PlayerPrefsHandler(settings),
+                            SaveLocation.JsonFile => new SingleJsonFileHandler(settings),
+                            _ => new PlayerPrefsHandler(settings)
+                        };
+                        handler.DeleteAll();
                         ReloadScene();
                     }
                 }

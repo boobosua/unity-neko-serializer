@@ -1,7 +1,5 @@
 using System;
 using System.Collections.Generic;
-using NekoLib.Core;
-using NekoLib.Extensions;
 using NekoLib.Logger;
 using UnityEngine;
 
@@ -12,72 +10,140 @@ namespace NekoSerialize
     /// </summary>
     public class PlayerPrefsHandler : SaveDataHandler
     {
-        public PlayerPrefsHandler(SaveLoadSettings settings) : base(settings) { }
+        private const string RegistryKey = "PlayerPrefsKeyRegistry";
+        private readonly List<string> _cachedKeys = new(32);
+
+        public PlayerPrefsHandler(SaveLoadSettings settings) : base(settings)
+        {
+            LoadRegistry();
+        }
+
+        protected override void SaveString(string key, string value)
+        {
+            PlayerPrefs.SetString(key, value);
+            PlayerPrefs.Save();
+
+            if (!string.IsNullOrWhiteSpace(key))
+            {
+                if (!string.Equals(key, RegistryKey, StringComparison.Ordinal) && !_cachedKeys.Contains(key))
+                {
+                    _cachedKeys.Add(key);
+                    PersistRegistry();
+                }
+            }
+        }
+
+        protected override bool TryLoadString(string key, out string value)
+        {
+            if (!PlayerPrefs.HasKey(key))
+            {
+                value = default;
+                return false;
+            }
+
+            value = PlayerPrefs.GetString(key);
+            return true;
+        }
+
+        protected override void DeleteString(string key)
+        {
+            if (PlayerPrefs.HasKey(key))
+            {
+                PlayerPrefs.DeleteKey(key);
+            }
+            PlayerPrefs.Save();
+
+            if (!string.IsNullOrWhiteSpace(key))
+            {
+                if (!string.Equals(key, RegistryKey, StringComparison.Ordinal) && _cachedKeys.Remove(key))
+                {
+                    PersistRegistry();
+                }
+            }
+        }
+
+        public override IEnumerable<string> Keys()
+        {
+            return _cachedKeys.ToArray();
+        }
+
+        public override bool Exists(string key)
+        {
+            return PlayerPrefs.HasKey(key);
+        }
+
+        public override void DeleteAll()
+        {
+            foreach (var key in _cachedKeys)
+            {
+                if (PlayerPrefs.HasKey(key))
+                {
+                    PlayerPrefs.DeleteKey(key);
+                }
+            }
+
+            _cachedKeys.Clear();
+
+            if (PlayerPrefs.HasKey(RegistryKey))
+            {
+                PlayerPrefs.DeleteKey(RegistryKey);
+            }
+
+            PlayerPrefs.Save();
+        }
 
         /// <summary>
-        /// Saves the given data to PlayerPrefs.
+        /// Loads the registry of saved keys from PlayerPrefs.
         /// </summary>
-        public override void WriteData(Dictionary<string, object> data)
+        private void LoadRegistry()
         {
             try
             {
-                var json = SerializeData(data);
-                PlayerPrefs.SetString(_settings.PlayerPrefsKey, json);
-                PlayerPrefs.Save();
-                Log.Info($"[PlayerPrefsHandler] Data saved to PlayerPrefs with key: {_settings.PlayerPrefsKey.Colorize(Swatch.DE)}");
+                if (!PlayerPrefs.HasKey(RegistryKey))
+                    return;
+
+                var json = PlayerPrefs.GetString(RegistryKey, string.Empty);
+                if (string.IsNullOrWhiteSpace(json))
+                    return;
+
+                var keys = DeserializeData<List<string>>(json);
+                if (keys == null)
+                    return;
+
+                foreach (var key in keys)
+                {
+                    if (string.IsNullOrWhiteSpace(key))
+                        continue;
+                    if (string.Equals(key, RegistryKey, StringComparison.Ordinal))
+                        continue;
+
+                    if (!_cachedKeys.Contains(key))
+                    {
+                        _cachedKeys.Add(key);
+                    }
+                }
             }
-            catch (Exception e)
+            catch
             {
-                Log.Error($"[PlayerPrefsHandler] Error saving data: {e.Message.Colorize(Swatch.VR)}");
+                Log.Warn("[PlayerPrefsHandler] Failed to load PlayerPrefs registry.");
             }
         }
 
         /// <summary>
-        /// Loads the saved data from PlayerPrefs.
+        /// Persists the registry of saved keys to PlayerPrefs.
         /// </summary>
-        public override Dictionary<string, object> ReadData()
+        private void PersistRegistry()
         {
             try
             {
-                if (PlayerPrefs.HasKey(_settings.PlayerPrefsKey))
-                {
-                    var json = PlayerPrefs.GetString(_settings.PlayerPrefsKey);
-                    var data = DeserializeData<Dictionary<string, object>>(json);
-                    Log.Info($"[PlayerPrefsHandler] Data loaded from PlayerPrefs with key: {_settings.PlayerPrefsKey.Colorize(Swatch.DE)}");
-                    return data ?? new();
-                }
-                else
-                {
-                    Log.Warn($"[PlayerPrefsHandler] No data found in PlayerPrefs save found, starting fresh.");
-                    return new();
-                }
-            }
-            catch (Exception e)
-            {
-                Log.Error($"[PlayerPrefsHandler] Error loading data: {e.Message.Colorize(Swatch.VR)}");
-                return new();
-            }
-        }
-
-        /// <summary>
-        /// Deletes the saved data from PlayerPrefs.
-        /// </summary>
-        public override void DeleteData()
-        {
-            if (PlayerPrefs.HasKey(_settings.PlayerPrefsKey))
-            {
-                PlayerPrefs.DeleteKey(_settings.PlayerPrefsKey);
+                var json = SerializeData(_cachedKeys);
+                PlayerPrefs.SetString(RegistryKey, json);
                 PlayerPrefs.Save();
-                Log.Info($"[PlayerPrefsHandler] Data deleted from PlayerPrefs.");
             }
-        }
-
-        /// <summary>
-        /// Checks if there is saved data in PlayerPrefs.
-        /// </summary>
-        public override bool DataExists()
-        {
-            return PlayerPrefs.HasKey(_settings.PlayerPrefsKey);
+            catch
+            {
+                Log.Warn("[PlayerPrefsHandler] Failed to persist PlayerPrefs registry.");
+            }
         }
     }
 }

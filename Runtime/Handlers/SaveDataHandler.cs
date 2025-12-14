@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Text;
-using System.Threading.Tasks;
 using Newtonsoft.Json;
 
 namespace NekoSerialize
@@ -18,25 +17,94 @@ namespace NekoSerialize
             _jsonSettings.Formatting = _settings.PrettyPrintJson ? Formatting.Indented : Formatting.None;
         }
 
-        public abstract void WriteData(Dictionary<string, object> data);
-        public abstract Dictionary<string, object> ReadData();
-        public abstract void DeleteData();
-        public abstract bool DataExists();
+        protected abstract void SaveString(string key, string value);
+        protected abstract bool TryLoadString(string key, out string value);
+        public abstract IEnumerable<string> Keys();
+        public abstract bool Exists(string key);
+        protected abstract void DeleteString(string key);
+        public abstract void DeleteAll();
 
         /// <summary>
-        /// Asynchronously saves the game data without blocking the main thread.
+        /// Saves the specified data under the given key.
         /// </summary>
-        public virtual async Task WriteDataAsync(Dictionary<string, object> data)
+        public void Save<T>(string key, T data)
         {
-            await Task.Run(() => WriteData(data));
+            var stored = SerializeData(data);
+            SaveString(key, stored);
+        }
+
+        /// <summary>   
+        /// Tries to load data for the specified key.
+        /// </summary>
+        public bool TryLoad<T>(string key, out T value)
+        {
+            if (!TryLoadString(key, out var stored))
+            {
+                value = default;
+                return false;
+            }
+
+            try
+            {
+                value = DeserializeData<T>(stored);
+                return true;
+            }
+            catch
+            {
+                value = default;
+                return false;
+            }
         }
 
         /// <summary>
-        /// Asynchronously loads the game data without blocking the main thread.
+        /// Deletes data for the specified key.
         /// </summary>
-        public virtual async Task<Dictionary<string, object>> ReadDataAsync()
+        public void Delete(string key)
         {
-            return await Task.Run(() => ReadData());
+            DeleteString(key);
+        }
+
+        /// <summary>
+        /// Bundles all saved data into a single string.
+        /// </summary>
+        public string Pack()
+        {
+            var dict = new Dictionary<string, string>();
+            foreach (var key in Keys())
+            {
+                if (TryLoadString(key, out var stored))
+                {
+                    dict[key] = stored;
+                }
+            }
+
+            return SerializeData(dict);
+        }
+
+        /// <summary>
+        /// Unbundles data from a single string into the save service.
+        /// </summary>
+        public void Unpack(string packedData, bool overwriteExisting = true)
+        {
+            if (string.IsNullOrWhiteSpace(packedData))
+                return;
+
+            var dict = DeserializeData<Dictionary<string, string>>(packedData);
+            if (dict == null)
+                return;
+
+            if (overwriteExisting)
+            {
+                DeleteAll();
+            }
+
+            foreach (var kv in dict)
+            {
+                if (!overwriteExisting && Exists(kv.Key))
+                    continue;
+
+                SaveString(kv.Key, kv.Value);
+            }
         }
 
         /// <summary>
