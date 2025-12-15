@@ -1,6 +1,6 @@
 {
   "name": "com.nekoindie.nekounity.serialize",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "displayName": "Neko Serialize",
   "description": "This is a package containing a save load system using the Newtonsoft.Json library for Unity game engine.",
   "unity": "2020.3",

@@ -1,11 +1,12 @@
 using System;
 using System.Collections.Generic;
 using System.Text;
+using NekoLib.Logger;
 using Newtonsoft.Json;
 
 namespace NekoSerialize
 {
-    public abstract class SaveDataHandler
+    internal abstract class SaveDataHandler
     {
         protected SaveLoadSettings _settings;
         protected JsonSerializerSettings _jsonSettings;
@@ -19,10 +20,8 @@ namespace NekoSerialize
 
         protected abstract void SaveString(string key, string value);
         protected abstract bool TryLoadString(string key, out string value);
-        public abstract IEnumerable<string> Keys();
         public abstract bool Exists(string key);
         protected abstract void DeleteString(string key);
-        public abstract void DeleteAll();
 
         /// <summary>
         /// Saves the specified data under the given key.
@@ -67,14 +66,18 @@ namespace NekoSerialize
         /// <summary>
         /// Bundles all saved data into a single string.
         /// </summary>
-        public string Pack()
+        public string Pack(params string[] keys)
         {
             var dict = new Dictionary<string, string>();
-            foreach (var key in Keys())
+            foreach (var key in keys)
             {
                 if (TryLoadString(key, out var stored))
                 {
                     dict[key] = stored;
+                }
+                else
+                {
+                    Log.Warn($"Key '{key}' does not exist or failed to load. Skipping in pack.");
                 }
             }
 
@@ -87,15 +90,16 @@ namespace NekoSerialize
         public void Unpack(string packedData, bool overwriteExisting = true)
         {
             if (string.IsNullOrWhiteSpace(packedData))
+            {
+                Log.Warn("Failed to unpack data: input string is null or empty.");
                 return;
+            }
 
             var dict = DeserializeData<Dictionary<string, string>>(packedData);
             if (dict == null)
-                return;
-
-            if (overwriteExisting)
             {
-                DeleteAll();
+                Log.Warn("Failed to unpack data: deserialized dictionary is null.");
+                return;
             }
 
             foreach (var kv in dict)
@@ -110,7 +114,7 @@ namespace NekoSerialize
         /// <summary>
         /// Serializes the given data object to a JSON string.
         /// </summary>
-        protected string SerializeData(object data)
+        internal string SerializeData(object data)
         {
             var json = JsonConvert.SerializeObject(data, _jsonSettings);
 
@@ -125,7 +129,7 @@ namespace NekoSerialize
         /// <summary>
         /// Deserializes the given JSON string to an object of type T.
         /// </summary>
-        protected T DeserializeData<T>(string json)
+        internal T DeserializeData<T>(string json)
         {
             if (_settings.UseEncryption)
             {

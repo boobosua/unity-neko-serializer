@@ -1,7 +1,4 @@
-using System;
-using System.Collections.Generic;
 using System.IO;
-using System.Linq;
 using UnityEngine;
 
 namespace NekoSerialize
@@ -9,7 +6,7 @@ namespace NekoSerialize
     /// <summary>
     /// Handles saving and loading data to a single JSON file.
     /// </summary>
-    public class SingleJsonFileHandler : SaveDataHandler
+    internal class SingleJsonFileHandler : SaveDataHandler
     {
         public SingleJsonFileHandler(SaveLoadSettings settings) : base(settings) { }
 
@@ -48,29 +45,9 @@ namespace NekoSerialize
             }
         }
 
-        public override IEnumerable<string> Keys()
-        {
-            if (!Directory.Exists(SaveDirectory))
-                return Array.Empty<string>();
-
-            var files = Directory.EnumerateFiles(SaveDirectory, "*.json", SearchOption.TopDirectoryOnly);
-            return files.Select(file => Path.GetFileNameWithoutExtension(file));
-        }
-
         public override bool Exists(string key)
         {
             return File.Exists(GetFilePath(key));
-        }
-
-        public override void DeleteAll()
-        {
-            if (!Directory.Exists(SaveDirectory))
-                return;
-
-            foreach (var file in Directory.EnumerateFiles(SaveDirectory, "*.json", SearchOption.TopDirectoryOnly))
-            {
-                File.Delete(file);
-            }
         }
     }
 }

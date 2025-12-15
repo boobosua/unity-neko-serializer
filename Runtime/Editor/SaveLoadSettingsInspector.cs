@@ -9,7 +9,6 @@ namespace NekoSerialize
     {
         private SerializedProperty _saveLocationProp;
         private SerializedProperty _folderNameProp;
-        private SerializedProperty _zipIdProp;
         private SerializedProperty _useEncryptionProp;
         private SerializedProperty _encryptionKeyProp;
         private SerializedProperty _prettyPrintJsonProp;
@@ -18,7 +17,6 @@ namespace NekoSerialize
         {
             _saveLocationProp = serializedObject.FindProperty("<SaveLocation>k__BackingField");
             _folderNameProp = serializedObject.FindProperty("<FolderName>k__BackingField");
-            _zipIdProp = serializedObject.FindProperty("<ZipId>k__BackingField");
             _useEncryptionProp = serializedObject.FindProperty("<UseEncryption>k__BackingField");
             _encryptionKeyProp = serializedObject.FindProperty("<EncryptionKey>k__BackingField");
             _prettyPrintJsonProp = serializedObject.FindProperty("<PrettyPrintJson>k__BackingField");
@@ -34,9 +32,6 @@ namespace NekoSerialize
             EditorGUILayout.PropertyField(_saveLocationProp, new GUIContent("Save Location"));
 
             var saveLocation = (SaveLocation)_saveLocationProp.enumValueIndex;
-
-            // Conditional settings based on save location
-            EditorGUILayout.PropertyField(_zipIdProp, new GUIContent("Archive/Zip Id"));
 
             if (saveLocation == SaveLocation.JsonFile)
             {
@@ -61,8 +56,8 @@ namespace NekoSerialize
             EditorGUILayout.Space();
             string hint = saveLocation switch
             {
-                SaveLocation.PlayerPrefs => "PlayerPrefs: Values are saved per key. Zip Id is used as a key prefix/namespace.",
-                SaveLocation.JsonFile => "JSON File: Values are saved per key as separate JSON files in the folder. Zip Id is for archive/cloud grouping.",
+                SaveLocation.PlayerPrefs => "PlayerPrefs: Values are saved per key.",
+                SaveLocation.JsonFile => "JSON File: Values are saved per key as separate files in the folder.",
                 _ => ""
             };
 

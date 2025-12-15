@@ -30,6 +30,14 @@ namespace NekoSerialize
         }
 
         /// <summary>
+        /// Loads the specified data asynchronously from the save service.
+        /// </summary>
+        public static Task<T> LoadAsync<T>(string key, T defaultValue = default)
+        {
+            return SaveLoadService.LoadAsync(key, defaultValue);
+        }
+
+        /// <summary>
         /// Checks if the specified data exists in the save service.
         /// </summary>
         public static bool Exists(string key)
@@ -46,27 +54,35 @@ namespace NekoSerialize
         }
 
         /// <summary>
-        /// Clears all data from the save service.
-        /// </summary>
-        public static void ClearAll()
-        {
-            SaveLoadService.DeleteAllData();
-        }
-
-        /// <summary>
         /// Bundles all saved data into a single string.
         /// </summary>
-        public static string BundleData()
+        public static string Pack(params string[] keys)
         {
-            return SaveLoadService.Pack();
+            return SaveLoadService.Pack(keys);
         }
 
         /// <summary>
         /// Unbundles data from a single string into the save service.
         /// </summary>
-        public static void UnbundleData(string packedData, bool overwriteExisting = true)
+        public static void Unpack(string packedData, bool overwriteExisting = true)
         {
             SaveLoadService.Unpack(packedData, overwriteExisting);
+        }
+
+        /// <summary>
+        /// Serializes an object to a JSON string.
+        /// </summary>
+        public static string Serialize(object obj)
+        {
+            return JsonSerializerUtils.SerializeObject(obj);
+        }
+
+        /// <summary>
+        /// Deserializes a JSON string to an object of type T.
+        /// </summary>
+        public static T Deserialize<T>(string json)
+        {
+            return JsonSerializerUtils.DeserializeObject<T>(json);
         }
 
         /// <summary>

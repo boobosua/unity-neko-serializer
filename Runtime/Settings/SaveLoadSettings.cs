@@ -1,9 +1,8 @@
 using UnityEngine;
-using UnityEngine.Serialization;
 
 namespace NekoSerialize
 {
-    [CreateAssetMenu(fileName = "SaveLoadSettings", menuName = "Neko Indie/Serialize/Save Load Settings")]
+    [CreateAssetMenu(fileName = "SaveLoadSettings", menuName = "Neko Framework/Serialize/Save Load Settings")]
     public class SaveLoadSettings : ScriptableObject
     {
         [Header("Save Settings")]

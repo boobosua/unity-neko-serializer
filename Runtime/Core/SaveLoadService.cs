@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Threading.Tasks;
 using NekoLib.Core;
 using NekoLib.Extensions;
@@ -79,7 +80,13 @@ namespace NekoSerialize
         public static void Save<T>(string key, T data)
         {
             Handler.Save(key, data);
-            Handler.Save(LastSaveTimeKey, DateTimeService.UtcNow);
+            var nowUtc = DateTimeService.UtcNow;
+            Handler.Save(LastSaveTimeKey, nowUtc);
+
+#if UNITY_EDITOR
+            TrackEditorSave(key, data);
+            TrackEditorSave(LastSaveTimeKey, nowUtc);
+#endif
         }
 
         /// <summary>
@@ -101,6 +108,9 @@ namespace NekoSerialize
             return defaultValue;
         }
 
+        /// <summary>
+        /// Load data asynchronously for the specified key.
+        /// </summary>
         public static async Task<T> LoadAsync<T>(string key, T defaultValue = default)
         {
             return await Task.Run(() => Load(key, defaultValue));
@@ -120,22 +130,19 @@ namespace NekoSerialize
         public static void DeleteData(string key)
         {
             Handler.Delete(key);
-        }
 
-        /// <summary>
-        /// Delete all save data.
-        /// </summary>
-        public static void DeleteAllData()
-        {
-            Handler.DeleteAll();
+#if UNITY_EDITOR
+            s_editorCache.Remove(key);
+            UntrackEditorKey(key);
+#endif
         }
 
         /// <summary>
         /// Bundle all saved data into a single string.
         /// </summary>
-        public static string Pack()
+        public static string Pack(params string[] keys)
         {
-            return Handler.Pack();
+            return Handler.Pack(keys);
         }
 
         /// <summary>
@@ -144,6 +151,21 @@ namespace NekoSerialize
         public static void Unpack(string packedData, bool overwriteExisting = true)
         {
             Handler.Unpack(packedData, overwriteExisting);
+
+#if UNITY_EDITOR
+            var dict = Handler.DeserializeData<Dictionary<string, string>>(packedData);
+
+            if (dict != null)
+            {
+                foreach (var kv in dict)
+                {
+                    if (Handler.TryLoad<object>(kv.Key, out var value))
+                    {
+                        TrackEditorSave(kv.Key, value);
+                    }
+                }
+            }
+#endif
         }
 
         /// <summary>
@@ -164,6 +186,122 @@ namespace NekoSerialize
         }
 
 #if UNITY_EDITOR
+        private static readonly Dictionary<string, object> s_editorCache = new();
+        private const string EditorCacheKeysPref = "NekoSerialize.EditorCacheKeys";
+
+        private static void TrackEditorSave(string key, object data)
+        {
+            s_editorCache[key] = data;
+            TrackEditorKey(key);
+        }
+
+        private static void TrackEditorKey(string key)
+        {
+            if (string.IsNullOrWhiteSpace(key))
+                return;
+
+            try
+            {
+                var keys = LoadEditorKeys();
+                if (!keys.Contains(key))
+                {
+                    keys.Add(key);
+                    SaveEditorKeys(keys);
+                }
+            }
+            catch
+            {
+                // Ignore editor cache persistence failures.
+            }
+        }
+
+        private static void UntrackEditorKey(string key)
+        {
+            if (string.IsNullOrWhiteSpace(key))
+                return;
+
+            try
+            {
+                var keys = LoadEditorKeys();
+                if (keys.Remove(key))
+                {
+                    SaveEditorKeys(keys);
+                }
+            }
+            catch
+            {
+                // Ignore editor cache persistence failures.
+            }
+        }
+
+        private static List<string> LoadEditorKeys()
+        {
+            var json = UnityEditor.EditorPrefs.GetString(EditorCacheKeysPref, string.Empty);
+            if (string.IsNullOrWhiteSpace(json))
+                return new List<string>();
+
+            try
+            {
+                var keys = JsonSerializerUtils.DeserializeObject<List<string>>(json);
+                return keys ?? new List<string>();
+            }
+            catch
+            {
+                return new List<string>();
+            }
+        }
+
+        private static void SaveEditorKeys(List<string> keys)
+        {
+            var json = JsonSerializerUtils.SerializeObject(keys ?? new List<string>());
+            UnityEditor.EditorPrefs.SetString(EditorCacheKeysPref, json);
+        }
+
+        private static void WarmEditorCacheFromStorage()
+        {
+            try
+            {
+                var settings = Settings;
+                if (settings.SaveLocation == SaveLocation.JsonFile)
+                {
+                    var saveDir = Path.Combine(Application.persistentDataPath, settings.FolderName);
+                    if (Directory.Exists(saveDir))
+                    {
+                        foreach (var filePath in Directory.GetFiles(saveDir, "*.json"))
+                        {
+                            var key = Path.GetFileNameWithoutExtension(filePath);
+                            if (string.IsNullOrWhiteSpace(key))
+                                continue;
+
+                            if (Handler.TryLoad<object>(key, out var value))
+                            {
+                                TrackEditorSave(key, value);
+                            }
+                        }
+                    }
+                }
+                else if (settings.SaveLocation == SaveLocation.PlayerPrefs)
+                {
+                    // PlayerPrefs keys cannot be enumerated; warm using previously tracked editor keys.
+                    var keys = LoadEditorKeys();
+                    foreach (var key in keys)
+                    {
+                        if (string.IsNullOrWhiteSpace(key))
+                            continue;
+
+                        if (Handler.TryLoad<object>(key, out var value))
+                        {
+                            TrackEditorSave(key, value);
+                        }
+                    }
+                }
+            }
+            catch
+            {
+                // Best-effort only.
+            }
+        }
+
         /// <summary>
         /// Handle cleanup when play mode exits without domain reload (for editor use).
         /// </summary>
@@ -175,6 +313,11 @@ namespace NekoSerialize
 
         private static void OnPlayModeStateChanged(UnityEditor.PlayModeStateChange state)
         {
+            if (state == UnityEditor.PlayModeStateChange.EnteredPlayMode)
+            {
+                WarmEditorCacheFromStorage();
+            }
+
             if (state == UnityEditor.PlayModeStateChange.ExitingPlayMode && Utils.IsReloadDomainDisabled())
             {
                 DisposeService();
@@ -201,52 +344,21 @@ namespace NekoSerialize
         }
 
         /// <summary>
-        /// Get all save data (for editor use).
+        /// Gets a live read-only view of the editor save cache.
+        /// This avoids allocating a new dictionary every call.
         /// </summary>
-        public static Dictionary<string, object> GetAllSaveData()
+        public static IReadOnlyDictionary<string, object> GetAllSaveData()
         {
-            var result = new Dictionary<string, object>();
-            foreach (var key in Handler.Keys())
-            {
-                if (Handler.TryLoad<object>(key, out var value))
-                {
-                    result[key] = value;
-                }
-            }
-            return result;
+            return s_editorCache;
         }
 
         /// <summary>
-        /// Check if data is persisted to storage (for editor use).
+        /// Gets a mutable snapshot of the editor save cache.
+        /// Use this if you need to modify the returned dictionary.
         /// </summary>
-        public static bool IsDataPersisted(string key)
+        public static Dictionary<string, object> GetAllSaveDataCopy()
         {
-            try
-            {
-                return Handler.Exists(key);
-            }
-            catch
-            {
-                return false;
-            }
-        }
-
-        /// <summary>
-        /// Get current settings (for editor and runtime use).
-        /// </summary>
-        public static SaveLoadSettings GetSettings()
-        {
-            return Settings;
-        }
-
-        /// <summary>
-        /// Refresh settings (for editor use).
-        /// </summary>
-        public static void RefreshSettings()
-        {
-            LoadSettings();
-            CreateDataHandler();
-            Log.Info("[SaveLoadService] Settings refreshed");
+            return new Dictionary<string, object>(s_editorCache);
         }
 #endif
     }

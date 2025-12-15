@@ -1,14 +1,13 @@
 #if UNITY_EDITOR
 
 using System.Collections.Generic;
-using System.IO;
 using Newtonsoft.Json;
 using UnityEditor;
 using UnityEngine;
 
 namespace NekoSerialize
 {
-    public class SaveLoadStorageWindow : EditorWindow
+    public class ClientDataEditorWindow : EditorWindow
     {
         private Vector2 scrollPosition;
         private Vector2 jsonScrollPosition;
@@ -28,13 +27,17 @@ namespace NekoSerialize
         [MenuItem("Tools/Neko Framework/Client Data Editor")]
         private static void OpenWindow()
         {
-            GetWindow<SaveLoadStorageWindow>("Client Data Editor").Show();
+            GetWindow<ClientDataEditorWindow>("Client Data Editor").Show();
         }
 
         void OnEnable()
         {
             EditorApplication.update += OnEditorUpdate;
-            RefreshJsonView();
+            if (Application.isPlaying)
+            {
+                Refresh();
+                RefreshJsonView();
+            }
         }
 
         void OnDisable()
@@ -57,7 +60,7 @@ namespace NekoSerialize
             // Always show tabs, but check prerequisites per tab
             DrawTabs();
 
-            if (selectedTab == 0 && !CheckDataViewPrerequisites())
+            if (!CheckViewPrerequisites())
             {
                 EditorGUILayout.EndVertical();
                 return;
@@ -69,13 +72,14 @@ namespace NekoSerialize
             EditorGUILayout.EndVertical();
         }
 
-        private bool CheckDataViewPrerequisites()
+        private bool CheckViewPrerequisites()
         {
             if (!Application.isPlaying)
             {
-                EditorGUILayout.HelpBox("Enter Play Mode to view and manage save data in Data View.", MessageType.Info);
+                EditorGUILayout.HelpBox("Enter Play Mode to view and manage save data.", MessageType.Info);
                 return false;
             }
+
             return true;
         }
 
@@ -263,12 +267,6 @@ namespace NekoSerialize
 
         private void DisplayJsonView()
         {
-            // Load data directly from storage if not in play mode
-            if (!Application.isPlaying)
-            {
-                LoadDataDirectlyFromStorage();
-            }
-
             if (string.IsNullOrEmpty(rawJsonData))
             {
                 EditorGUILayout.LabelField("No save data found.", EditorStyles.centeredGreyMiniLabel);
@@ -630,6 +628,9 @@ namespace NekoSerialize
 
         private void RefreshJsonView()
         {
+            if (!Application.isPlaying)
+                return;
+
             LoadDataDirectlyFromStorage();
             Repaint();
         }
@@ -657,74 +658,11 @@ namespace NekoSerialize
 
         private Dictionary<string, object> GetDirectStorageData()
         {
-            // Load settings to get the correct storage configuration
-            var settings = LoadSettingsDirectly();
-
-            return settings.SaveLocation switch
-            {
-                SaveLocation.PlayerPrefs => LoadFromPlayerPrefsDirectly(settings),
-                SaveLocation.JsonFile => LoadFromJsonFileDirectly(settings),
-                _ => LoadFromPlayerPrefsDirectly(settings) // Default fallback
-            };
+            // In play mode, SaveLoadService warms and maintains an editor cache.
+            // Use it for listing/inspection (especially for PlayerPrefs where keys can't be enumerated).
+            return SaveLoadService.GetAllSaveDataCopy();
         }
 
-        private SaveLoadSettings LoadSettingsDirectly()
-        {
-            // Try to load settings from Resources folder (same way SaveLoadService does it)
-            var settings = Resources.Load<SaveLoadSettings>("SaveLoadSettings");
-            if (settings == null)
-            {
-                // Create default settings if none found
-                settings = ScriptableObject.CreateInstance<SaveLoadSettings>();
-            }
-            return settings;
-        }
-
-        private Dictionary<string, object> LoadFromPlayerPrefsDirectly(SaveLoadSettings settings)
-        {
-            try
-            {
-                var handler = new PlayerPrefsHandler(settings);
-                var result = new Dictionary<string, object>();
-                foreach (var key in handler.Keys())
-                {
-                    if (handler.TryLoad<object>(key, out var value))
-                    {
-                        result[key] = value;
-                    }
-                }
-                return result;
-            }
-            catch (System.Exception e)
-            {
-                Debug.LogError($"[SaveLoadStorageWindow] Error loading from PlayerPrefs: {e.Message}");
-            }
-
-            return new Dictionary<string, object>();
-        }
-
-        private Dictionary<string, object> LoadFromJsonFileDirectly(SaveLoadSettings settings)
-        {
-            try
-            {
-                var handler = new SingleJsonFileHandler(settings);
-                var result = new Dictionary<string, object>();
-                foreach (var key in handler.Keys())
-                {
-                    if (handler.TryLoad<object>(key, out var value))
-                    {
-                        result[key] = value;
-                    }
-                }
-                return result;
-            }
-            catch (System.Exception e)
-            {
-                Debug.LogError($"[SaveLoadStorageWindow] Error loading from JSON file: {e.Message}");
-            }
-
-            return new Dictionary<string, object>();
-        }
         private void UpdateRawJsonData()
         {
             try
@@ -750,14 +688,13 @@ namespace NekoSerialize
 
             if (EditorUtility.DisplayDialog(title, message, ok, cancel))
             {
-                var settings = LoadSettingsDirectly();
-                SaveDataHandler handler = settings.SaveLocation switch
+                // Delete all keys tracked by the library (from SaveLoadService editor cache).
+                var keys = new List<string>(SaveLoadService.GetAllSaveData().Keys);
+                foreach (var key in keys)
                 {
-                    SaveLocation.PlayerPrefs => new PlayerPrefsHandler(settings),
-                    SaveLocation.JsonFile => new SingleJsonFileHandler(settings),
-                    _ => new PlayerPrefsHandler(settings)
-                };
-                handler.DeleteAll();
+                    SaveLoadService.DeleteData(key);
+                }
+
                 RestartGame();
             }
         }
@@ -783,7 +720,7 @@ namespace NekoSerialize
         }
 
         // Static constructor to handle post-domain-reload logic
-        static SaveLoadStorageWindow()
+        static ClientDataEditorWindow()
         {
             // Check if we should enter play mode after domain reload
             EditorApplication.delayCall += CheckAndEnterPlayMode;

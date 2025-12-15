@@ -1,7 +1,6 @@
 #if UNITY_EDITOR
 using UnityEditor;
 using UnityEngine;
-using UnityEngine.SceneManagement;
 
 namespace NekoSerialize
 {
@@ -11,7 +10,13 @@ namespace NekoSerialize
         private SerializedObject _serializedSettings;
         private Vector2 _scrollPosition;
 
-        [MenuItem("Tools/Neko Framework/Serialize Settings")]
+        private SerializedProperty _saveLocationProp;
+        private SerializedProperty _folderNameProp;
+        private SerializedProperty _useEncryptionProp;
+        private SerializedProperty _encryptionKeyProp;
+        private SerializedProperty _prettyPrintJsonProp;
+
+        [MenuItem("Tools/Neko Framework/Save Load Settings")]
         public static void ShowWindow()
         {
             var window = GetWindow<SaveLoadSettingsWindow>("Save Load Settings");
@@ -31,6 +36,12 @@ namespace NekoSerialize
             if (_settings != null)
             {
                 _serializedSettings = new SerializedObject(_settings);
+
+                _saveLocationProp = _serializedSettings.FindProperty("<SaveLocation>k__BackingField");
+                _folderNameProp = _serializedSettings.FindProperty("<FolderName>k__BackingField");
+                _useEncryptionProp = _serializedSettings.FindProperty("<UseEncryption>k__BackingField");
+                _encryptionKeyProp = _serializedSettings.FindProperty("<EncryptionKey>k__BackingField");
+                _prettyPrintJsonProp = _serializedSettings.FindProperty("<PrettyPrintJson>k__BackingField");
             }
         }
 
@@ -65,8 +76,7 @@ namespace NekoSerialize
         {
             if (Application.isPlaying)
             {
-                var currentScene = SceneManager.GetActiveScene();
-                SceneManager.LoadScene(currentScene.name);
+                // Removed runtime controls from this window.
             }
         }
 
@@ -85,112 +95,75 @@ namespace NekoSerialize
                 return;
             }
 
-            _scrollPosition = EditorGUILayout.BeginScrollView(_scrollPosition);
-
-            EditorGUILayout.Space(5);
-
-            // Settings UI
-            _serializedSettings.Update();
-
-            DrawSettingsSection();
-
-            if (_serializedSettings.ApplyModifiedProperties())
+            var scrollStarted = false;
+            try
             {
-                EditorUtility.SetDirty(_settings);
-                AssetDatabase.SaveAssets();
+                _scrollPosition = EditorGUILayout.BeginScrollView(_scrollPosition);
+                scrollStarted = true;
 
-                // No runtime service refresh needed (direct-to-storage model)
+                EditorGUILayout.Space(5);
+
+                // Settings UI
+                _serializedSettings.Update();
+
+                DrawSettingsSection();
+
+                if (_serializedSettings.ApplyModifiedProperties())
+                {
+                    EditorUtility.SetDirty(_settings);
+                    AssetDatabase.SaveAssets();
+
+                    // No runtime service refresh needed (direct-to-storage model)
+                }
+
+                // Intentionally no utility/runtime buttons in this window.
             }
-
-            EditorGUILayout.Space();
-            DrawUtilityButtons();
-
-            EditorGUILayout.EndScrollView();
+            finally
+            {
+                if (scrollStarted)
+                    EditorGUILayout.EndScrollView();
+            }
         }
 
         private void DrawSettingsSection()
         {
             EditorGUILayout.LabelField("Save Settings", EditorStyles.boldLabel);
 
+            if (_saveLocationProp == null || _folderNameProp == null || _useEncryptionProp == null || _encryptionKeyProp == null || _prettyPrintJsonProp == null)
+            {
+                EditorGUILayout.HelpBox(
+                    "SaveLoadSettings fields could not be found. This window is out of sync with SaveLoadSettings.\n" +
+                    "Try reimporting scripts or regenerate the SaveLoadSettings asset.",
+                    MessageType.Error);
+                return;
+            }
+
             // Save Location
-            EditorGUILayout.PropertyField(_serializedSettings.FindProperty("<SaveLocation>k__BackingField"), new GUIContent("Save Location"));
+            EditorGUILayout.PropertyField(_saveLocationProp, new GUIContent("Save Location"));
 
-            var saveLocation = (SaveLocation)_serializedSettings.FindProperty("<SaveLocation>k__BackingField").enumValueIndex;
-
-            // Conditional settings based on save location
-            EditorGUILayout.PropertyField(_serializedSettings.FindProperty("<ZipId>k__BackingField"), new GUIContent("Archive/Zip Id"));
+            var saveLocation = (SaveLocation)_saveLocationProp.enumValueIndex;
 
             if (saveLocation == SaveLocation.JsonFile)
             {
-                EditorGUILayout.PropertyField(_serializedSettings.FindProperty("<FolderName>k__BackingField"), new GUIContent("Folder Name"));
+                EditorGUILayout.PropertyField(_folderNameProp, new GUIContent("Folder Name"));
             }
 
             EditorGUILayout.Space();
             EditorGUILayout.LabelField("Security", EditorStyles.boldLabel);
-            EditorGUILayout.PropertyField(_serializedSettings.FindProperty("<UseEncryption>k__BackingField"), new GUIContent("Use Encryption"));
+            EditorGUILayout.PropertyField(_useEncryptionProp, new GUIContent("Use Encryption"));
 
-            if (_settings.UseEncryption)
+            if (_useEncryptionProp.boolValue)
             {
-                EditorGUILayout.PropertyField(_serializedSettings.FindProperty("<EncryptionKey>k__BackingField"), new GUIContent("Encryption Key"));
+                EditorGUILayout.PropertyField(_encryptionKeyProp, new GUIContent("Encryption Key"));
                 EditorGUILayout.HelpBox("Keep your encryption key secure! Consider using environment variables in production.", MessageType.Info);
             }
 
             EditorGUILayout.Space();
             EditorGUILayout.LabelField("Formatting", EditorStyles.boldLabel);
-            EditorGUILayout.PropertyField(_serializedSettings.FindProperty("<PrettyPrintJson>k__BackingField"), new GUIContent("Pretty Print JSON"));
+            EditorGUILayout.PropertyField(_prettyPrintJsonProp, new GUIContent("Pretty Print JSON"));
         }
 
-        private void DrawUtilityButtons()
-        {
-            EditorGUILayout.BeginHorizontal();
-
-            if (GUILayout.Button("Open Settings File"))
-            {
-                Selection.activeObject = _settings;
-                EditorGUIUtility.PingObject(_settings);
-            }
-
-            if (GUILayout.Button("Refresh from File"))
-            {
-                LoadSettings();
-                Repaint();
-            }
-
-            EditorGUILayout.EndHorizontal();
-
-            EditorGUILayout.Space();
-
-            if (Application.isPlaying)
-            {
-                EditorGUILayout.LabelField("Runtime Controls", EditorStyles.boldLabel);
-
-                EditorGUILayout.BeginHorizontal();
-
-                if (GUILayout.Button("Delete All & Reload"))
-                {
-                    if (EditorUtility.DisplayDialog("Delete All Save Data",
-                        "Are you sure you want to delete all save data and reload the scene? This cannot be undone.",
-                        "Delete & Reload", "Cancel"))
-                    {
-                        var settings = Resources.Load<SaveLoadSettings>("SaveLoadSettings") ?? CreateInstance<SaveLoadSettings>();
-                        SaveDataHandler handler = settings.SaveLocation switch
-                        {
-                            SaveLocation.PlayerPrefs => new PlayerPrefsHandler(settings),
-                            SaveLocation.JsonFile => new SingleJsonFileHandler(settings),
-                            _ => new PlayerPrefsHandler(settings)
-                        };
-                        handler.DeleteAll();
-                        ReloadScene();
-                    }
-                }
-
-                EditorGUILayout.EndHorizontal();
-            }
-            else
-            {
-                EditorGUILayout.HelpBox("Runtime controls are available when the game is playing.", MessageType.Info);
-            }
-        }
+        // Utility/runtime controls intentionally removed.
     }
 }
 #endif

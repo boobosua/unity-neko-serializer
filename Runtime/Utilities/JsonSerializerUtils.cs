@@ -6,7 +6,7 @@ namespace NekoSerialize
     /// <summary>
     /// Utility class to configure JsonSerializer with Unity type converters
     /// </summary>
-    public static class JsonSerializerUtils
+    internal static class JsonSerializerUtils
     {
         private static readonly JsonSerializerSettings s_settings;
         private static readonly JsonSerializer s_serializer;
@@ -16,7 +16,6 @@ namespace NekoSerialize
             s_settings = CreateSettings();
             s_serializer = JsonSerializer.Create(s_settings);
         }
-
 
         /// <summary>
         /// Creates JsonSerializerSettings with all Unity type converters configured
