@@ -3,7 +3,7 @@ using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using UnityEngine;
 
-namespace NekoSerialize
+namespace NekoSerializer
 {
     /// <summary>
     /// JSON Converter for Unity Color using Newtonsoft.Json
@@ -22,13 +22,13 @@ namespace NekoSerialize
 
         public override Color ReadJson(JsonReader reader, Type objectType, Color existingValue, bool hasExistingValue, JsonSerializer serializer)
         {
-            if (reader.TokenType == JsonToken.Null) return new Color(0,0,0,0);
+            if (reader.TokenType == JsonToken.Null) return new Color(0, 0, 0, 0);
             JObject obj = JObject.Load(reader);
             float r = obj["r"]?.Value<float>() ?? 0f;
             float g = obj["g"]?.Value<float>() ?? 0f;
             float b = obj["b"]?.Value<float>() ?? 0f;
             float a = obj["a"]?.Value<float>() ?? 0f;
-            return new Color(r,g,b,a);
+            return new Color(r, g, b, a);
         }
     }
 }

@@ -1,6 +1,6 @@
-# Neko Serialize
+# Neko Serializer
 
-A save-load system using the Newtonsoft library.
+A serialization system using the Newtonsoft library.
 
 ## Save Load Usage
 

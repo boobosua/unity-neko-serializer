@@ -9,19 +9,19 @@ using NekoLib.Services;
 using NekoLib.Utilities;
 using UnityEngine;
 
-namespace NekoSerialize
+namespace NekoSerializer
 {
     /// <summary>
     /// Core save/load service with separated memory and storage operations.
     /// </summary>
-    internal static class SaveLoadService
+    internal static class SerializationService
     {
         private const string LastSaveTimeKey = "LastSaveTime";
 
-        private static SaveDataHandler s_dataHandler;
-        private static SaveLoadSettings s_settings;
+        private static DataSerializationHandler s_dataHandler;
+        private static SerializerSettings s_settings;
 
-        private static SaveLoadSettings Settings
+        private static SerializerSettings Settings
         {
             get
             {
@@ -34,7 +34,7 @@ namespace NekoSerialize
             }
         }
 
-        private static SaveDataHandler Handler
+        private static DataSerializationHandler Handler
         {
             get
             {
@@ -52,11 +52,11 @@ namespace NekoSerialize
         /// </summary>
         private static void LoadSettings()
         {
-            s_settings = Resources.Load<SaveLoadSettings>("SaveLoadSettings");
+            s_settings = Resources.Load<SerializerSettings>("SaveLoadSettings");
             if (s_settings == null)
             {
                 Log.Warn("[SaveLoadService] No SaveLoadSettings found in Resources folder. Using default settings in memory.");
-                s_settings = ScriptableObject.CreateInstance<SaveLoadSettings>();
+                s_settings = ScriptableObject.CreateInstance<SerializerSettings>();
             }
         }
 
@@ -66,10 +66,10 @@ namespace NekoSerialize
         private static void CreateDataHandler()
         {
             var settings = Settings;
-            s_dataHandler = settings.SaveLocation switch
+            s_dataHandler = settings.StorageOption switch
             {
-                SaveLocation.PlayerPrefs => new PlayerPrefsHandler(settings),
-                SaveLocation.JsonFile => new SingleJsonFileHandler(settings),
+                StorageOption.PlayerPrefs => new PlayerPrefsHandler(settings),
+                StorageOption.JsonFile => new SingleJsonFileHandler(settings),
                 _ => new PlayerPrefsHandler(settings)
             };
         }
@@ -130,7 +130,6 @@ namespace NekoSerialize
         public static void DeleteData(string key)
         {
             Handler.Delete(key);
-
 #if UNITY_EDITOR
             s_editorCache.Remove(key);
             UntrackEditorKey(key);
@@ -187,7 +186,7 @@ namespace NekoSerialize
 
 #if UNITY_EDITOR
         private static readonly Dictionary<string, object> s_editorCache = new();
-        private const string EditorCacheKeysPref = "NekoSerialize.EditorCacheKeys";
+        private const string EditorCacheKeysPref = "NekoSerializer.EditorCacheKeys";
 
         private static void TrackEditorSave(string key, object data)
         {
@@ -262,9 +261,9 @@ namespace NekoSerialize
             try
             {
                 var settings = Settings;
-                if (settings.SaveLocation == SaveLocation.JsonFile)
+                if (settings.StorageOption == StorageOption.JsonFile)
                 {
-                    var saveDir = Path.Combine(Application.persistentDataPath, settings.FolderName);
+                    var saveDir = Path.Combine(Application.persistentDataPath, settings.SaveDirectory);
                     if (Directory.Exists(saveDir))
                     {
                         foreach (var filePath in Directory.GetFiles(saveDir, "*.json"))
@@ -280,7 +279,7 @@ namespace NekoSerialize
                         }
                     }
                 }
-                else if (settings.SaveLocation == SaveLocation.PlayerPrefs)
+                else if (settings.StorageOption == StorageOption.PlayerPrefs)
                 {
                     // PlayerPrefs keys cannot be enumerated; warm using previously tracked editor keys.
                     var keys = LoadEditorKeys();

@@ -1,6 +1,6 @@
-namespace NekoSerialize
+namespace NekoSerializer
 {
-    public enum SaveLocation
+    public enum StorageOption
     {
         JsonFile = 0,
         PlayerPrefs = 1

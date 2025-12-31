@@ -1,6 +1,6 @@
 {
-    "name": "NekoSerialize",
-    "rootNamespace": "NekoSerialize",
+    "name": "NekoSerializer",
+    "rootNamespace": "NekoSerializer",
     "references": [
         "GUID:22a704979ba6f464ea6e8bb476cdcc2b"
     ],

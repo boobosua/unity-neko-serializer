@@ -4,14 +4,14 @@ using System.Text;
 using NekoLib.Logger;
 using Newtonsoft.Json;
 
-namespace NekoSerialize
+namespace NekoSerializer
 {
-    internal abstract class SaveDataHandler
+    internal abstract class DataSerializationHandler
     {
-        protected SaveLoadSettings _settings;
+        protected SerializerSettings _settings;
         protected JsonSerializerSettings _jsonSettings;
 
-        public SaveDataHandler(SaveLoadSettings settings)
+        public DataSerializationHandler(SerializerSettings settings)
         {
             _settings = settings;
             _jsonSettings = JsonSerializerUtils.GetSettings();

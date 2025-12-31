@@ -2,24 +2,24 @@
 using UnityEditor;
 using UnityEngine;
 
-namespace NekoSerialize
+namespace NekoSerializer
 {
-    public class SaveLoadSettingsWindow : EditorWindow
+    public class SerializerSettingsWindow : EditorWindow
     {
-        private SaveLoadSettings _settings;
+        private SerializerSettings _settings;
         private SerializedObject _serializedSettings;
         private Vector2 _scrollPosition;
 
-        private SerializedProperty _saveLocationProp;
-        private SerializedProperty _folderNameProp;
+        private SerializedProperty _storageOptionProp;
+        private SerializedProperty _saveDirectoryProp;
         private SerializedProperty _useEncryptionProp;
         private SerializedProperty _encryptionKeyProp;
         private SerializedProperty _prettyPrintJsonProp;
 
-        [MenuItem("Tools/Neko Framework/Save Load Settings")]
+        [MenuItem("Tools/Neko Framework/Serializer Settings")]
         public static void ShowWindow()
         {
-            var window = GetWindow<SaveLoadSettingsWindow>("Save Load Settings");
+            var window = GetWindow<SerializerSettingsWindow>("Serializer Settings");
             window.minSize = new Vector2(400, 500);
             window.Show();
         }
@@ -31,14 +31,14 @@ namespace NekoSerialize
 
         private void LoadSettings()
         {
-            _settings = Resources.Load<SaveLoadSettings>("SaveLoadSettings");
+            _settings = Resources.Load<SerializerSettings>("SerializerSettings");
 
             if (_settings != null)
             {
                 _serializedSettings = new SerializedObject(_settings);
 
-                _saveLocationProp = _serializedSettings.FindProperty("<SaveLocation>k__BackingField");
-                _folderNameProp = _serializedSettings.FindProperty("<FolderName>k__BackingField");
+                _storageOptionProp = _serializedSettings.FindProperty("<StorageOption>k__BackingField");
+                _saveDirectoryProp = _serializedSettings.FindProperty("<SaveDirectory>k__BackingField");
                 _useEncryptionProp = _serializedSettings.FindProperty("<UseEncryption>k__BackingField");
                 _encryptionKeyProp = _serializedSettings.FindProperty("<EncryptionKey>k__BackingField");
                 _prettyPrintJsonProp = _serializedSettings.FindProperty("<PrettyPrintJson>k__BackingField");
@@ -47,24 +47,24 @@ namespace NekoSerialize
 
         private void CreateDefaultSettings()
         {
-            _settings = CreateInstance<SaveLoadSettings>();
+            _settings = CreateInstance<SerializerSettings>();
 
             // Create the directory structure for library use
             string pluginPath = "Assets/Plugins";
-            string nekoSerializePath = "Assets/Plugins/NekoSerialize";
-            string resourcesPath = "Assets/Plugins/NekoSerialize/Resources";
+            string NekoSerializerPath = "Assets/Plugins/NekoSerializer";
+            string resourcesPath = "Assets/Plugins/NekoSerializer/Resources";
 
             if (!AssetDatabase.IsValidFolder(pluginPath))
                 AssetDatabase.CreateFolder("Assets", "Plugins");
 
-            if (!AssetDatabase.IsValidFolder(nekoSerializePath))
-                AssetDatabase.CreateFolder("Assets/Plugins", "NekoSerialize");
+            if (!AssetDatabase.IsValidFolder(NekoSerializerPath))
+                AssetDatabase.CreateFolder("Assets/Plugins", "NekoSerializer");
 
             if (!AssetDatabase.IsValidFolder(resourcesPath))
-                AssetDatabase.CreateFolder("Assets/Plugins/NekoSerialize", "Resources");
+                AssetDatabase.CreateFolder("Assets/Plugins/NekoSerializer", "Resources");
 
             // Save the settings asset
-            string assetPath = "Assets/Plugins/NekoSerialize/Resources/SaveLoadSettings.asset";
+            string assetPath = "Assets/Plugins/NekoSerializer/Resources/SerializerSettings.asset";
             AssetDatabase.CreateAsset(_settings, assetPath);
             AssetDatabase.SaveAssets();
             AssetDatabase.Refresh();
@@ -84,10 +84,10 @@ namespace NekoSerialize
         {
             if (_settings == null || _serializedSettings == null)
             {
-                EditorGUILayout.HelpBox("SaveLoadSettings not found. Create settings for this project.", MessageType.Warning);
+                EditorGUILayout.HelpBox("SerializerSettings not found. Create settings for this project.", MessageType.Warning);
                 EditorGUILayout.Space();
 
-                if (GUILayout.Button("Create New Save Load Settings", GUILayout.Height(30)))
+                if (GUILayout.Button("Create New Settings", GUILayout.Height(30)))
                 {
                     CreateDefaultSettings();
                     LoadSettings();
@@ -127,29 +127,29 @@ namespace NekoSerialize
 
         private void DrawSettingsSection()
         {
-            EditorGUILayout.LabelField("Save Settings", EditorStyles.boldLabel);
+            // EditorGUILayout.LabelField("Serializer Settings", EditorStyles.boldLabel);
 
-            if (_saveLocationProp == null || _folderNameProp == null || _useEncryptionProp == null || _encryptionKeyProp == null || _prettyPrintJsonProp == null)
+            if (_storageOptionProp == null || _saveDirectoryProp == null || _useEncryptionProp == null || _encryptionKeyProp == null || _prettyPrintJsonProp == null)
             {
                 EditorGUILayout.HelpBox(
-                    "SaveLoadSettings fields could not be found. This window is out of sync with SaveLoadSettings.\n" +
-                    "Try reimporting scripts or regenerate the SaveLoadSettings asset.",
+                    "SerializerSettings fields could not be found. This window is out of sync with SerializerSettings.\n" +
+                    "Try reimporting scripts or regenerate the SerializerSettings asset.",
                     MessageType.Error);
                 return;
             }
 
             // Save Location
-            EditorGUILayout.PropertyField(_saveLocationProp, new GUIContent("Save Location"));
+            EditorGUILayout.PropertyField(_storageOptionProp, new GUIContent("Storage Option"));
 
-            var saveLocation = (SaveLocation)_saveLocationProp.enumValueIndex;
+            var saveLocation = (StorageOption)_storageOptionProp.enumValueIndex;
 
-            if (saveLocation == SaveLocation.JsonFile)
+            if (saveLocation == StorageOption.JsonFile)
             {
-                EditorGUILayout.PropertyField(_folderNameProp, new GUIContent("Folder Name"));
+                EditorGUILayout.PropertyField(_saveDirectoryProp, new GUIContent("Save Directory"));
             }
 
-            EditorGUILayout.Space();
-            EditorGUILayout.LabelField("Security", EditorStyles.boldLabel);
+            // EditorGUILayout.Space();
+            // EditorGUILayout.LabelField("Security", EditorStyles.boldLabel);
             EditorGUILayout.PropertyField(_useEncryptionProp, new GUIContent("Use Encryption"));
 
             if (_useEncryptionProp.boolValue)
@@ -158,8 +158,8 @@ namespace NekoSerialize
                 EditorGUILayout.HelpBox("Keep your encryption key secure! Consider using environment variables in production.", MessageType.Info);
             }
 
-            EditorGUILayout.Space();
-            EditorGUILayout.LabelField("Formatting", EditorStyles.boldLabel);
+            // EditorGUILayout.Space();
+            // EditorGUILayout.LabelField("Formatting", EditorStyles.boldLabel);
             EditorGUILayout.PropertyField(_prettyPrintJsonProp, new GUIContent("Pretty Print JSON"));
         }
 

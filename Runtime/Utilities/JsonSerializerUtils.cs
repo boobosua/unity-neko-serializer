@@ -1,7 +1,7 @@
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 
-namespace NekoSerialize
+namespace NekoSerializer
 {
     /// <summary>
     /// Utility class to configure JsonSerializer with Unity type converters

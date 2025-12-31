@@ -5,9 +5,9 @@ using Newtonsoft.Json;
 using UnityEditor;
 using UnityEngine;
 
-namespace NekoSerialize
+namespace NekoSerializer
 {
-    public class ClientDataEditorWindow : EditorWindow
+    public class DataSerializationViewer : EditorWindow
     {
         private Vector2 scrollPosition;
         private Vector2 jsonScrollPosition;
@@ -24,10 +24,10 @@ namespace NekoSerialize
         private readonly string[] tabs = { "Data View", "JSON View" };
         private string rawJsonData = "";
 
-        [MenuItem("Tools/Neko Framework/Client Data Editor")]
+        [MenuItem("Tools/Neko Framework/Data Serialization Viewer")]
         private static void OpenWindow()
         {
-            GetWindow<ClientDataEditorWindow>("Client Data Editor").Show();
+            GetWindow<DataSerializationViewer>("Data Serialization Viewer").Show();
         }
 
         void OnEnable()
@@ -660,7 +660,7 @@ namespace NekoSerialize
         {
             // In play mode, SaveLoadService warms and maintains an editor cache.
             // Use it for listing/inspection (especially for PlayerPrefs where keys can't be enumerated).
-            return SaveLoadService.GetAllSaveDataCopy();
+            return SerializationService.GetAllSaveDataCopy();
         }
 
         private void UpdateRawJsonData()
@@ -689,10 +689,10 @@ namespace NekoSerialize
             if (EditorUtility.DisplayDialog(title, message, ok, cancel))
             {
                 // Delete all keys tracked by the library (from SaveLoadService editor cache).
-                var keys = new List<string>(SaveLoadService.GetAllSaveData().Keys);
+                var keys = new List<string>(SerializationService.GetAllSaveData().Keys);
                 foreach (var key in keys)
                 {
-                    SaveLoadService.DeleteData(key);
+                    SerializationService.DeleteData(key);
                 }
 
                 RestartGame();
@@ -720,7 +720,7 @@ namespace NekoSerialize
         }
 
         // Static constructor to handle post-domain-reload logic
-        static ClientDataEditorWindow()
+        static DataSerializationViewer()
         {
             // Check if we should enter play mode after domain reload
             EditorApplication.delayCall += CheckAndEnterPlayMode;

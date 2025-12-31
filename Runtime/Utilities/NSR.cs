@@ -1,7 +1,7 @@
 using System;
 using System.Threading.Tasks;
 
-namespace NekoSerialize
+namespace NekoSerializer
 {
     public static class NSR
     {
@@ -10,7 +10,7 @@ namespace NekoSerialize
         /// </summary>
         public static void Save<T>(string key, T data)
         {
-            SaveLoadService.Save(key, data);
+            SerializationService.Save(key, data);
         }
 
         /// <summary>
@@ -18,7 +18,7 @@ namespace NekoSerialize
         /// </summary>
         public static Task SaveAsync<T>(string key, T data)
         {
-            return SaveLoadService.SaveAsync(key, data);
+            return SerializationService.SaveAsync(key, data);
         }
 
         /// <summary>
@@ -26,7 +26,7 @@ namespace NekoSerialize
         /// </summary>
         public static T Load<T>(string key, T defaultValue = default)
         {
-            return SaveLoadService.Load(key, defaultValue);
+            return SerializationService.Load(key, defaultValue);
         }
 
         /// <summary>
@@ -34,7 +34,7 @@ namespace NekoSerialize
         /// </summary>
         public static Task<T> LoadAsync<T>(string key, T defaultValue = default)
         {
-            return SaveLoadService.LoadAsync(key, defaultValue);
+            return SerializationService.LoadAsync(key, defaultValue);
         }
 
         /// <summary>
@@ -42,7 +42,7 @@ namespace NekoSerialize
         /// </summary>
         public static bool Exists(string key)
         {
-            return SaveLoadService.HasData(key);
+            return SerializationService.HasData(key);
         }
 
         /// <summary>
@@ -50,7 +50,7 @@ namespace NekoSerialize
         /// </summary>
         public static void Delete(string key)
         {
-            SaveLoadService.DeleteData(key);
+            SerializationService.DeleteData(key);
         }
 
         /// <summary>
@@ -58,7 +58,7 @@ namespace NekoSerialize
         /// </summary>
         public static string Pack(params string[] keys)
         {
-            return SaveLoadService.Pack(keys);
+            return SerializationService.Pack(keys);
         }
 
         /// <summary>
@@ -66,7 +66,7 @@ namespace NekoSerialize
         /// </summary>
         public static void Unpack(string packedData, bool overwriteExisting = true)
         {
-            SaveLoadService.Unpack(packedData, overwriteExisting);
+            SerializationService.Unpack(packedData, overwriteExisting);
         }
 
         /// <summary>
@@ -90,7 +90,7 @@ namespace NekoSerialize
         /// </summary>
         public static DateTime LastSaveTimeUtc
         {
-            get { return SaveLoadService.GetLastSaveTimeUtc(); }
+            get { return SerializationService.GetLastSaveTimeUtc(); }
         }
 
         /// <summary>
@@ -98,7 +98,7 @@ namespace NekoSerialize
         /// </summary>
         public static DateTime LastSaveTimeLocal
         {
-            get { return SaveLoadService.GetLastSaveTimeLocal(); }
+            get { return SerializationService.GetLastSaveTimeLocal(); }
         }
     }
 }

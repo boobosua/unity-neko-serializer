@@ -1,16 +1,16 @@
 using System.IO;
 using UnityEngine;
 
-namespace NekoSerialize
+namespace NekoSerializer
 {
     /// <summary>
     /// Handles saving and loading data to a single JSON file.
     /// </summary>
-    internal class SingleJsonFileHandler : SaveDataHandler
+    internal class SingleJsonFileHandler : DataSerializationHandler
     {
-        public SingleJsonFileHandler(SaveLoadSettings settings) : base(settings) { }
+        public SingleJsonFileHandler(SerializerSettings settings) : base(settings) { }
 
-        private string SaveDirectory => Path.Combine(Application.persistentDataPath, _settings.FolderName);
+        private string SaveDirectory => Path.Combine(Application.persistentDataPath, _settings.SaveDirectory);
 
         private string GetFilePath(string key)
         {

@@ -1,16 +1,16 @@
 using UnityEngine;
 
-namespace NekoSerialize
+namespace NekoSerializer
 {
-    [CreateAssetMenu(fileName = "SaveLoadSettings", menuName = "Neko Framework/Serialize/Save Load Settings")]
-    public class SaveLoadSettings : ScriptableObject
+    [CreateAssetMenu(fileName = "SerializerSettings", menuName = "Neko Framework/Serialize/Serializer Settings")]
+    public class SerializerSettings : ScriptableObject
     {
         [Header("Save Settings")]
         [field: SerializeField, Tooltip("The location where save data will be stored.")]
-        public SaveLocation SaveLocation { get; private set; } = SaveLocation.PlayerPrefs;
+        public StorageOption StorageOption { get; private set; } = StorageOption.PlayerPrefs;
 
         [field: SerializeField, Tooltip("The name of the folder to save data to.")]
-        public string FolderName { get; private set; } = "SaveData";
+        public string SaveDirectory { get; private set; } = "SaveData";
 
         [Header("Security")]
         [field: SerializeField, Tooltip("Whether to use encryption for save data.")]

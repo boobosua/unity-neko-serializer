@@ -3,7 +3,7 @@ using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using UnityEngine;
 
-namespace NekoSerialize
+namespace NekoSerializer
 {
     /// <summary>
     /// JSON Converter for Unity Vector3 using Newtonsoft.Json

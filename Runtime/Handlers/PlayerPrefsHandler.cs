@@ -1,13 +1,13 @@
 using UnityEngine;
 
-namespace NekoSerialize
+namespace NekoSerializer
 {
     /// <summary>
     /// Handles saving and loading data using PlayerPrefs.
     /// </summary>
-    internal class PlayerPrefsHandler : SaveDataHandler
+    internal class PlayerPrefsHandler : DataSerializationHandler
     {
-        public PlayerPrefsHandler(SaveLoadSettings settings) : base(settings) { }
+        public PlayerPrefsHandler(SerializerSettings settings) : base(settings) { }
 
         protected override void SaveString(string key, string value)
         {

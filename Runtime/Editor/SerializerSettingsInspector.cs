@@ -2,21 +2,21 @@
 using UnityEditor;
 using UnityEngine;
 
-namespace NekoSerialize
+namespace NekoSerializer
 {
-    [CustomEditor(typeof(SaveLoadSettings))]
-    public class SaveLoadSettingsInspector : Editor
+    [CustomEditor(typeof(SerializerSettings))]
+    public class SerializerSettingsInspector : Editor
     {
-        private SerializedProperty _saveLocationProp;
-        private SerializedProperty _folderNameProp;
+        private SerializedProperty _storageOptionProp;
+        private SerializedProperty _saveDirectoryProp;
         private SerializedProperty _useEncryptionProp;
         private SerializedProperty _encryptionKeyProp;
         private SerializedProperty _prettyPrintJsonProp;
 
         private void OnEnable()
         {
-            _saveLocationProp = serializedObject.FindProperty("<SaveLocation>k__BackingField");
-            _folderNameProp = serializedObject.FindProperty("<FolderName>k__BackingField");
+            _storageOptionProp = serializedObject.FindProperty("<StorageOption>k__BackingField");
+            _saveDirectoryProp = serializedObject.FindProperty("<SaveDirectory>k__BackingField");
             _useEncryptionProp = serializedObject.FindProperty("<UseEncryption>k__BackingField");
             _encryptionKeyProp = serializedObject.FindProperty("<EncryptionKey>k__BackingField");
             _prettyPrintJsonProp = serializedObject.FindProperty("<PrettyPrintJson>k__BackingField");
@@ -26,20 +26,20 @@ namespace NekoSerialize
         {
             serializedObject.Update();
 
-            EditorGUILayout.LabelField("Save Settings", EditorStyles.boldLabel);
+            // EditorGUILayout.LabelField("Serializer Settings", EditorStyles.boldLabel);
 
             // Save Location
-            EditorGUILayout.PropertyField(_saveLocationProp, new GUIContent("Save Location"));
+            EditorGUILayout.PropertyField(_storageOptionProp, new GUIContent("Storage Option"));
 
-            var saveLocation = (SaveLocation)_saveLocationProp.enumValueIndex;
+            var saveLocation = (StorageOption)_storageOptionProp.enumValueIndex;
 
-            if (saveLocation == SaveLocation.JsonFile)
+            if (saveLocation == StorageOption.JsonFile)
             {
-                EditorGUILayout.PropertyField(_folderNameProp, new GUIContent("Folder Name"));
+                EditorGUILayout.PropertyField(_saveDirectoryProp, new GUIContent("Save Directory"));
             }
 
-            EditorGUILayout.Space();
-            EditorGUILayout.LabelField("Security", EditorStyles.boldLabel);
+            // EditorGUILayout.Space();
+            // EditorGUILayout.LabelField("Security", EditorStyles.boldLabel);
             EditorGUILayout.PropertyField(_useEncryptionProp, new GUIContent("Use Encryption"));
 
             if (_useEncryptionProp.boolValue)
@@ -48,16 +48,16 @@ namespace NekoSerialize
                 EditorGUILayout.HelpBox("Keep your encryption key secure! Consider using environment variables in production.", MessageType.Info);
             }
 
-            EditorGUILayout.Space();
-            EditorGUILayout.LabelField("Formatting", EditorStyles.boldLabel);
+            // EditorGUILayout.Space();
+            // EditorGUILayout.LabelField("Formatting", EditorStyles.boldLabel);
             EditorGUILayout.PropertyField(_prettyPrintJsonProp, new GUIContent("Pretty Print JSON"));
 
             // Show hints based on save location
-            EditorGUILayout.Space();
+            // EditorGUILayout.Space();
             string hint = saveLocation switch
             {
-                SaveLocation.PlayerPrefs => "PlayerPrefs: Values are saved per key.",
-                SaveLocation.JsonFile => "JSON File: Values are saved per key as separate files in the folder.",
+                StorageOption.PlayerPrefs => "PlayerPrefs: Values are saved per key.",
+                StorageOption.JsonFile => "JSON File: Values are saved per key as separate files in the save directory.",
                 _ => ""
             };
 
