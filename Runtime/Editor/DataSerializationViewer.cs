@@ -18,11 +18,14 @@ namespace NekoSerializer
 #endif
 
 #if ODIN_INSPECTOR
-    public class DataSerializationViewer : OdinEditorWindow
+    public partial class DataSerializationViewer : OdinEditorWindow
 #else
-    public class DataSerializationViewer : EditorWindow
+    public partial class DataSerializationViewer : EditorWindow
 #endif
     {
+        // Unity 6+ UI Toolkit hosting flag (CreateGUI sets this).
+        private bool _useUIToolkitHost;
+
         private Vector2 scrollPosition;
         private Vector2 jsonScrollPosition;
         private Dictionary<string, object> currentSaveData = new();
@@ -30,6 +33,27 @@ namespace NekoSerializer
         private readonly HashSet<string> _dirtyRootKeys = new();
         private readonly Dictionary<string, bool> foldoutStates = new();
         private readonly Dictionary<string, bool> dictionaryFoldoutStates = new();
+
+        // Data View root ordering cache:
+        // - LastSaveTime should always appear first.
+        // - Everything else should follow the "raw" order coming from the save system.
+        // - Cache the ordering so we don't allocate/sort every repaint.
+        private readonly List<string> _dataViewRootKeyRawOrder = new();
+        private readonly List<string> _dataViewRootKeyDisplayOrder = new();
+        private bool _dataViewRootKeyOrderDirty = true;
+
+        private readonly Dictionary<string, string> _newDictionaryKeyByPath = new();
+
+        // Refresh model:
+        // - Refresh once when the window opens/enables
+        // - Refresh when the user presses the Refresh button
+        // - Refresh when entering Play Mode (to populate data)
+
+        private bool _warmupDataRefreshActive = false;
+        private int _warmupDataRefreshTriesRemaining = 0;
+
+        private bool _warmupJsonRefreshActive = false;
+        private int _warmupJsonRefreshTriesRemaining = 0;
 
         private string _colorizedJsonCache;
         private string _colorizedJsonCacheSource;
@@ -50,6 +74,15 @@ namespace NekoSerializer
         private readonly Dictionary<string, PropertyTree> _odinTreeByPath = new();
         private readonly Dictionary<string, IOdinValueContainer> _odinContainerByPath = new();
 
+        private struct OdinRootConversionCacheEntry
+        {
+            public object Source;
+            public object Converted;
+            public Func<object, object> ConvertBack;
+        }
+
+        private readonly Dictionary<string, OdinRootConversionCacheEntry> _odinRootConversionByKey = new();
+
         private void DisposeOdinCaches()
         {
             foreach (var kvp in _odinTreeByPath)
@@ -66,6 +99,7 @@ namespace NekoSerializer
 
             _odinTreeByPath.Clear();
             _odinContainerByPath.Clear();
+            _odinRootConversionByKey.Clear();
         }
 #endif
 
@@ -79,71 +113,73 @@ namespace NekoSerializer
         protected override void OnEnable()
         {
             base.OnEnable();
-            EditorApplication.update += OnEditorUpdate;
+            EditorApplication.playModeStateChanged += OnPlayModeStateChanged;
             if (Application.isPlaying)
             {
-                Refresh();
-                RefreshJsonView();
+                if (selectedTab == 1)
+                    RefreshJsonView();
+                else
+                    Refresh();
             }
         }
 
         protected override void OnDisable()
         {
             base.OnDisable();
-            EditorApplication.update -= OnEditorUpdate;
+            EditorApplication.playModeStateChanged -= OnPlayModeStateChanged;
 
             DisposeOdinCaches();
         }
 #else
         private void OnEnable()
         {
-            EditorApplication.update += OnEditorUpdate;
+            EditorApplication.playModeStateChanged += OnPlayModeStateChanged;
             if (Application.isPlaying)
             {
-                Refresh();
-                RefreshJsonView();
+                if (selectedTab == 1)
+                    RefreshJsonView();
+                else
+                    Refresh();
             }
         }
 
         private void OnDisable()
         {
-            EditorApplication.update -= OnEditorUpdate;
+            EditorApplication.playModeStateChanged -= OnPlayModeStateChanged;
         }
 #endif
 
-        void OnEditorUpdate()
+        private void OnPlayModeStateChanged(PlayModeStateChange state)
         {
-            if (!Application.isPlaying)
-                return;
-
-            // Don't wipe staged edits while the user is editing.
-            if (!HasStagedChanges())
-                Refresh();
+            if (state == PlayModeStateChange.EnteredPlayMode)
+            {
+                if (selectedTab == 1)
+                    RefreshJsonView();
+                else
+                    Refresh();
+            }
         }
 
 #if ODIN_INSPECTOR
         protected override void OnImGUI()
         {
-            EditorGUILayout.BeginVertical();
-            EditorGUILayout.Space();
-
-            // Always show tabs, but check prerequisites per tab
-            DrawTabs();
-
-            if (!CheckViewPrerequisites())
-            {
-                EditorGUILayout.EndVertical();
+            if (_useUIToolkitHost)
                 return;
-            }
 
-            DrawContent();
-            DrawBottomButtons();
-
-            EditorGUILayout.EndVertical();
+            DrawIMGUIRoot();
         }
 #else
         private void OnGUI()
         {
+            if (_useUIToolkitHost)
+                return;
+
+            DrawIMGUIRoot();
+        }
+#endif
+
+        private void DrawIMGUIRoot()
+        {
             EditorGUILayout.BeginVertical();
             EditorGUILayout.Space();
 
@@ -161,475 +197,7 @@ namespace NekoSerializer
 
             EditorGUILayout.EndVertical();
         }
-#endif
 
-        private bool CheckViewPrerequisites()
-        {
-            if (!Application.isPlaying)
-            {
-                EditorGUILayout.HelpBox("Enter Play Mode to view and manage save data.", MessageType.Info);
-                return false;
-            }
-
-            return true;
-        }
-
-        private void DrawTabs()
-        {
-#if ODIN_INSPECTOR
-            // Odin toolbar tabs (GroupTab-like styling)
-            SirenixEditorGUI.BeginHorizontalToolbar(24f, 0);
-            {
-                for (int i = 0; i < tabs.Length; i++)
-                {
-                    bool isActive = selectedTab == i;
-                    bool nowActive = SirenixEditorGUI.ToolbarTab(isActive, tabs[i]);
-                    if (nowActive && !isActive)
-                        selectedTab = i;
-                }
-            }
-            SirenixEditorGUI.EndHorizontalToolbar();
-#else
-            // Use unified tab bar style
-            selectedTab = NekoLib.Core.NekoEditorTabBar.Draw(selectedTab, tabs, 24f);
-#endif
-        }
-
-        // Legacy style method removed; unified tab bar used instead
-
-        private void DrawRedButton(string text, System.Action onClickAction, params GUILayoutOption[] options)
-        {
-            // Store original background color
-            Color originalBgColor = GUI.backgroundColor;
-
-            // Set lighter, more noticeable red background color
-            GUI.backgroundColor = new Color(1.0f, 0.4f, 0.4f, 1f);
-
-            // Create style with white text
-            var redStyle = new GUIStyle(GUI.skin.button);
-            redStyle.fontSize = 12;
-            redStyle.fontStyle = FontStyle.Bold;
-            redStyle.normal.textColor = Color.white;
-            redStyle.hover.textColor = Color.white;
-            redStyle.active.textColor = Color.white;
-
-            if (GUILayout.Button(text, redStyle, options))
-            {
-                onClickAction?.Invoke();
-            }
-
-            // Restore original background color
-            GUI.backgroundColor = originalBgColor;
-        }
-
-        private void DrawContent()
-        {
-            EditorGUILayout.BeginVertical();
-
-            if (selectedTab == 0)
-            {
-                DisplayDataView();
-            }
-            else
-            {
-                DisplayJsonView();
-            }
-
-            EditorGUILayout.EndVertical();
-        }
-
-        private void DrawBottomButtons()
-        {
-            GUILayout.FlexibleSpace();
-            EditorGUILayout.Space(5);
-
-            // Separator line
-            var rect = GUILayoutUtility.GetRect(0, 1);
-            EditorGUI.DrawRect(rect, new Color(0.5f, 0.5f, 0.5f, 0.3f));
-            EditorGUILayout.Space(5);
-
-            EditorGUILayout.BeginHorizontal();
-
-#if ODIN_INSPECTOR
-            if (SirenixEditorGUI.Button("Refresh", Sirenix.OdinInspector.ButtonSizes.Large))
-#else
-            if (GUILayout.Button("Refresh", GUILayout.Height(30)))
-#endif
-            {
-                if (selectedTab == 0)
-                    RefreshDiscardingStagedChangesIfConfirmed();
-                else
-                    RefreshJsonView();
-            }
-
-            if (selectedTab == 0 && Application.isPlaying)
-            {
-#if ODIN_INSPECTOR
-                EditorGUI.BeginDisabledGroup(!HasStagedChanges());
-                if (SirenixEditorGUI.Button("Save & Restart", Sirenix.OdinInspector.ButtonSizes.Large))
-#else
-                EditorGUI.BeginDisabledGroup(!HasStagedChanges());
-                if (GUILayout.Button("Save & Restart", GUILayout.Height(30)))
-#endif
-                {
-                    SaveAndRestart();
-                }
-
-                EditorGUI.EndDisabledGroup();
-            }
-
-            // Delete All only available in play mode for Data View - RED BUTTON
-            if (selectedTab == 0 && Application.isPlaying)
-            {
-#if ODIN_INSPECTOR
-                var prevBg = GUI.backgroundColor;
-                GUI.backgroundColor = new Color(1.0f, 0.4f, 0.4f, 1f);
-                if (SirenixEditorGUI.Button("Delete All", Sirenix.OdinInspector.ButtonSizes.Large))
-                    DeleteAll();
-                GUI.backgroundColor = prevBg;
-#else
-                DrawRedButton("Delete All", DeleteAll, GUILayout.Height(30));
-#endif
-            }
-
-            // Copy button available for JSON view when there's data
-            if (selectedTab == 1 && !string.IsNullOrEmpty(rawJsonData) && rawJsonData != "{}")
-            {
-#if ODIN_INSPECTOR
-                if (SirenixEditorGUI.Button("Copy to Clipboard", Sirenix.OdinInspector.ButtonSizes.Large))
-#else
-                if (GUILayout.Button("Copy to Clipboard", GUILayout.Height(30)))
-#endif
-                {
-                    CopyJsonToClipboard();
-                }
-            }
-
-            EditorGUILayout.EndHorizontal();
-            EditorGUILayout.Space(5);
-        }
-
-        private void SaveAndRestart()
-        {
-            if (!Application.isPlaying)
-                return;
-
-            const string title = "Save";
-            const string message = "Save staged changes and restart Play Mode?\n\nChanges are only written when you press Save.";
-            if (!EditorUtility.DisplayDialog(title, message, "Save & Restart", "Cancel"))
-                return;
-
-            CommitStagedChangesToStorage();
-            RestartGame();
-        }
-
-        private void DisplayDataView()
-        {
-            if (stagedSaveData.Count == 0)
-            {
-                EditorGUILayout.LabelField("No save data found.", EditorStyles.centeredGreyMiniLabel);
-                return;
-            }
-
-            scrollPosition = EditorGUILayout.BeginScrollView(scrollPosition);
-
-            var dataList = new List<KeyValuePair<string, object>>(stagedSaveData);
-            dataList.Sort((a, b) => CompareRootKeysForDisplay(a.Key, b.Key));
-            var paginationInfo = CalculatePagination(dataList.Count);
-
-            DrawPaginationControls(paginationInfo);
-            DrawDataItems(dataList, paginationInfo);
-
-            EditorGUILayout.EndScrollView();
-        }
-
-        private (int totalPages, int startIndex, int endIndex) CalculatePagination(int totalItems)
-        {
-            int totalPages = Mathf.CeilToInt((float)totalItems / itemsPerPage);
-
-            // Ensure current page is valid
-            if (currentPage >= totalPages && totalPages > 0)
-                currentPage = totalPages - 1;
-            if (currentPage < 0)
-                currentPage = 0;
-
-            int startIndex = currentPage * itemsPerPage;
-            int endIndex = Mathf.Min(startIndex + itemsPerPage, totalItems);
-
-            return (totalPages, startIndex, endIndex);
-        }
-
-        private void DrawPaginationControls((int totalPages, int startIndex, int endIndex) paginationInfo)
-        {
-            if (paginationInfo.totalPages <= 1) return;
-
-            EditorGUILayout.BeginHorizontal();
-            EditorGUILayout.LabelField($"Page {currentPage + 1} of {paginationInfo.totalPages}", EditorStyles.centeredGreyMiniLabel);
-            EditorGUILayout.EndHorizontal();
-
-            EditorGUILayout.BeginHorizontal();
-
-            EditorGUI.BeginDisabledGroup(currentPage <= 0);
-            if (GUILayout.Button("Previous")) currentPage--;
-            EditorGUI.EndDisabledGroup();
-
-            EditorGUI.BeginDisabledGroup(currentPage >= paginationInfo.totalPages - 1);
-            if (GUILayout.Button("Next")) currentPage++;
-            EditorGUI.EndDisabledGroup();
-
-            EditorGUILayout.EndHorizontal();
-            EditorGUILayout.Space();
-        }
-
-        private void DrawDataItems(List<KeyValuePair<string, object>> dataList, (int totalPages, int startIndex, int endIndex) paginationInfo)
-        {
-            for (int i = paginationInfo.startIndex; i < paginationInfo.endIndex; i++)
-            {
-                var kvp = dataList[i];
-                if (kvp.Value == null) continue;
-
-                DrawDataItem(kvp);
-            }
-        }
-
-        private void DrawDataItem(KeyValuePair<string, object> kvp)
-        {
-#if ODIN_INSPECTOR
-            // In Odin mode, show native collection drawers for the entire value.
-            object odinRootValue = kvp.Value;
-            if (odinRootValue is JValue jv)
-                odinRootValue = jv.Value;
-
-            if (TryConvertVectorJArrayToTypedList(odinRootValue, out var typedList))
-                odinRootValue = typedList;
-
-            if (IsOdinNativeCollection(odinRootValue))
-            {
-                object updated = odinRootValue;
-                bool changed = DrawEditableAny(ObjectNames.NicifyVariableName(kvp.Key), ref updated, kvp.Key);
-                if (changed)
-                {
-                    stagedSaveData[kvp.Key] = updated;
-                    MarkRootDirty(kvp.Key);
-                }
-                return;
-            }
-#endif
-
-            // If this key holds a single value (int/float/string/etc.), show it as a normal inspector field (no foldout).
-            if (IsSingleValue(kvp.Value))
-            {
-                object updated = kvp.Value;
-                bool changed = DrawEditableAny(ObjectNames.NicifyVariableName(kvp.Key), ref updated, kvp.Key);
-                if (changed)
-                {
-                    stagedSaveData[kvp.Key] = updated;
-                    MarkRootDirty(kvp.Key);
-                }
-                return;
-            }
-
-#if ODIN_INSPECTOR
-            SirenixEditorGUI.BeginBox();
-#else
-            var boxStyle = new GUIStyle("helpBox")
-            {
-                padding = new RectOffset(8, 8, 8, 8),
-                margin = new RectOffset(4, 4, 2, 2)
-            };
-            EditorGUILayout.BeginVertical(boxStyle);
-#endif
-
-            if (!foldoutStates.ContainsKey(kvp.Key))
-                foldoutStates[kvp.Key] = false;
-
-            // Custom foldout header for collections: show item count + add button.
-            if (TryGetCollectionCount(kvp.Value, out int count))
-            {
-                bool addClicked;
-                DrawRootCollectionHeaderRow(kvp.Key, count, out addClicked);
-                if (addClicked)
-                {
-                    object updated = kvp.Value;
-                    if (TryAddCollectionItem(ref updated, kvp.Key))
-                    {
-                        stagedSaveData[kvp.Key] = updated;
-                        MarkRootDirty(kvp.Key);
-                    }
-                }
-            }
-            else
-            {
-#if ODIN_INSPECTOR
-                foldoutStates[kvp.Key] = SirenixEditorGUI.Foldout(foldoutStates[kvp.Key], ObjectNames.NicifyVariableName(kvp.Key), EditorStyles.foldout);
-#else
-                foldoutStates[kvp.Key] = EditorGUILayout.Foldout(foldoutStates[kvp.Key], ObjectNames.NicifyVariableName(kvp.Key), true);
-#endif
-            }
-
-            if (foldoutStates[kvp.Key])
-            {
-                EditorGUI.indentLevel++;
-                DisplayData(kvp.Key, kvp.Value);
-                EditorGUI.indentLevel--;
-            }
-
-#if ODIN_INSPECTOR
-            SirenixEditorGUI.EndBox();
-#else
-            EditorGUILayout.EndVertical();
-#endif
-            EditorGUILayout.Space(2);
-        }
-
-#if ODIN_INSPECTOR
-        private static bool TryConvertVectorJArrayToTypedList(object value, out object typedList)
-        {
-            typedList = null;
-            if (value is not JArray ja)
-                return false;
-
-            // Only convert when every element looks like a vector object.
-            bool allV3 = true;
-            bool allV2 = true;
-
-            for (int i = 0; i < ja.Count; i++)
-            {
-                if (ja[i] is not JObject jo)
-                {
-                    allV3 = false;
-                    allV2 = false;
-                    break;
-                }
-
-                bool looksV2 = jo.ContainsKey("x") && jo.ContainsKey("y") && !jo.ContainsKey("z");
-                bool looksV3 = jo.ContainsKey("x") && jo.ContainsKey("y") && jo.ContainsKey("z") && !jo.ContainsKey("w");
-
-                allV3 &= looksV3;
-                allV2 &= looksV2;
-                if (!allV3 && !allV2)
-                    break;
-            }
-
-            if (allV3)
-            {
-                var list = new List<Vector3>(ja.Count);
-                for (int i = 0; i < ja.Count; i++)
-                {
-                    var jo = (JObject)ja[i];
-                    float x = jo["x"]?.ToObject<float>() ?? 0f;
-                    float y = jo["y"]?.ToObject<float>() ?? 0f;
-                    float z = jo["z"]?.ToObject<float>() ?? 0f;
-                    list.Add(new Vector3(x, y, z));
-                }
-
-                typedList = list;
-                return true;
-            }
-
-            if (allV2)
-            {
-                var list = new List<Vector2>(ja.Count);
-                for (int i = 0; i < ja.Count; i++)
-                {
-                    var jo = (JObject)ja[i];
-                    float x = jo["x"]?.ToObject<float>() ?? 0f;
-                    float y = jo["y"]?.ToObject<float>() ?? 0f;
-                    list.Add(new Vector2(x, y));
-                }
-
-                typedList = list;
-                return true;
-            }
-
-            return false;
-        }
-#endif
-
-        private static int CompareRootKeysForDisplay(string a, string b)
-        {
-            bool aIsLast = string.Equals(a, "LastSaveTime", StringComparison.OrdinalIgnoreCase);
-            bool bIsLast = string.Equals(b, "LastSaveTime", StringComparison.OrdinalIgnoreCase);
-            if (aIsLast && !bIsLast) return -1;
-            if (!aIsLast && bIsLast) return 1;
-            return string.Compare(a, b, StringComparison.OrdinalIgnoreCase);
-        }
-
-        private void DrawRootCollectionHeaderRow(string key, int count, out bool addClicked)
-        {
-            addClicked = false;
-
-            var labelContent = new GUIContent(ObjectNames.NicifyVariableName(key));
-            int totalPages = Mathf.Max(1, Mathf.CeilToInt(count / (float)CollectionItemsPerPage));
-            int page = GetCollectionPage(key);
-            if (page >= totalPages) page = totalPages - 1;
-            if (page < 0) page = 0;
-            _collectionPageByPath[key] = page;
-
-            Rect rowRect = GUILayoutUtility.GetRect(1f, EditorGUIUtility.singleLineHeight + 2f, GUILayout.ExpandWidth(true));
-            rowRect.y += 1f;
-            rowRect.height = EditorGUIUtility.singleLineHeight;
-            rowRect.xMin += 2f;
-            rowRect.xMax -= 2f;
-
-            const float gap = 6f;
-            const float prevW = 50f;
-            const float nextW = 50f;
-            const float plusW = 26f;
-
-            var pageContent = new GUIContent($"Page {page + 1}/{totalPages}");
-            float pageW = Mathf.Ceil(EditorStyles.miniLabel.CalcSize(pageContent).x) + 10f;
-            float centerW = prevW + gap + pageW + gap + nextW;
-
-            var countContent = new GUIContent($"{count} items");
-            float countW = Mathf.Ceil(EditorStyles.miniLabel.CalcSize(countContent).x);
-            float rightW = countW + gap + plusW;
-
-            Rect rightRect = new Rect(rowRect.xMax - rightW, rowRect.y, rightW, rowRect.height);
-            Rect centerRect = new Rect(rowRect.center.x - (centerW * 0.5f), rowRect.y, centerW, rowRect.height);
-
-            // Keep the center controls from overlapping the right group.
-            float maxCenterX = rightRect.xMin - gap - centerRect.width;
-            if (centerRect.x > maxCenterX)
-                centerRect.x = maxCenterX;
-            if (centerRect.x < rowRect.xMin)
-                centerRect.x = rowRect.xMin;
-
-            float leftMaxX = Mathf.Min(centerRect.xMin - gap, rightRect.xMin - gap);
-            Rect leftRect = new Rect(rowRect.xMin, rowRect.y, Mathf.Max(0f, leftMaxX - rowRect.xMin), rowRect.height);
-
-            // Left: foldout
-            if (!foldoutStates.TryGetValue(key, out bool expanded))
-                expanded = false;
-            expanded = EditorGUI.Foldout(leftRect, expanded, labelContent, true);
-            foldoutStates[key] = expanded;
-
-            // Center: Prev / Page / Next (true-centered on the row)
-            Rect prevRect = new Rect(centerRect.x, centerRect.y, prevW, centerRect.height);
-            Rect pageRect = new Rect(prevRect.xMax + gap, centerRect.y, pageW, centerRect.height);
-            Rect nextRect = new Rect(pageRect.xMax + gap, centerRect.y, nextW, centerRect.height);
-
-            using (new EditorGUI.DisabledScope(page <= 0))
-            {
-                if (GUI.Button(prevRect, "Prev"))
-                    _collectionPageByPath[key] = Mathf.Max(0, page - 1);
-            }
-
-            var centeredMiniLabel = new GUIStyle(EditorStyles.miniLabel) { alignment = TextAnchor.MiddleCenter };
-            GUI.Label(pageRect, pageContent, centeredMiniLabel);
-
-            using (new EditorGUI.DisabledScope(page >= totalPages - 1))
-            {
-                if (GUI.Button(nextRect, "Next"))
-                    _collectionPageByPath[key] = Mathf.Min(totalPages - 1, page + 1);
-            }
-
-            // Right: item count + add
-            Rect plusRect = new Rect(rightRect.xMax - plusW, rightRect.y, plusW, rightRect.height);
-            Rect countRect = new Rect(rightRect.x, rightRect.y, Mathf.Max(0f, rightRect.width - plusW - gap), rightRect.height);
-            GUI.Label(countRect, countContent, new GUIStyle(EditorStyles.miniLabel) { alignment = TextAnchor.MiddleLeft });
-            addClicked = GUI.Button(plusRect, "+");
-        }
 
         private static bool IsSingleValue(object value)
         {
@@ -650,8 +218,15 @@ namespace NekoSerializer
                 return false;
             }
 
+            // Treat vector dictionaries {x,y[,z]} as single values.
+            if (value is System.Collections.IDictionary dict)
+            {
+                if (LooksLikeVector3Dictionary(dict) || LooksLikeVector2Dictionary(dict))
+                    return true;
+                return false;
+            }
+
             if (value is JArray) return false;
-            if (value is System.Collections.IDictionary) return false;
             if (value is System.Collections.IList) return false;
             if (value is Array) return false;
 
@@ -665,65 +240,6 @@ namespace NekoSerializer
 
             // Anything else could expand into fields, so keep foldout.
             return false;
-        }
-
-        private void DisplayJsonView()
-        {
-            if (string.IsNullOrEmpty(rawJsonData))
-            {
-                EditorGUILayout.LabelField("No save data found.", EditorStyles.centeredGreyMiniLabel);
-                return;
-            }
-
-            EditorGUILayout.LabelField("Raw JSON Data (Read-only):", EditorStyles.boldLabel);
-            EditorGUILayout.Space(5);
-
-            jsonScrollPosition = EditorGUILayout.BeginScrollView(jsonScrollPosition);
-
-            var textAreaStyle = CreateJsonTextAreaStyle();
-            var displayText = GetColorizedJsonForDisplay(rawJsonData);
-            var content = new GUIContent(rawJsonData);
-            float height = Mathf.Max(textAreaStyle.CalcHeight(content, position.width - 30), 200f);
-
-            EditorGUILayout.SelectableLabel(displayText, textAreaStyle,
-                GUILayout.Height(height), GUILayout.ExpandWidth(true));
-
-            EditorGUILayout.EndScrollView();
-        }
-
-        private GUIStyle CreateJsonTextAreaStyle()
-        {
-            return new GUIStyle(EditorStyles.textArea)
-            {
-                wordWrap = false,
-                fontSize = 11,
-                richText = true
-            };
-        }
-
-        private string GetColorizedJsonForDisplay(string json)
-        {
-            if (string.IsNullOrEmpty(json))
-                return json;
-
-            if (ReferenceEquals(_colorizedJsonCacheSource, json) && !string.IsNullOrEmpty(_colorizedJsonCache))
-                return _colorizedJsonCache;
-
-            if (_colorizedJsonCacheSource == json && !string.IsNullOrEmpty(_colorizedJsonCache))
-                return _colorizedJsonCache;
-
-            _colorizedJsonCacheSource = json;
-            _colorizedJsonCache = JsonSyntaxHighlighter.Colorize(json);
-            return _colorizedJsonCache;
-        }
-
-        private void CopyJsonToClipboard()
-        {
-            if (string.IsNullOrEmpty(rawJsonData)) return;
-
-            EditorGUIUtility.systemCopyBuffer = rawJsonData;
-            Debug.Log("JSON data copied to clipboard!");
-            ShowNotification(new GUIContent("JSON copied to clipboard!"));
         }
 
         private void DisplayData(string rootKey, object obj)
@@ -828,6 +344,55 @@ namespace NekoSerializer
             // Dictionaries
             if (value is System.Collections.IDictionary)
             {
+                var dict = (System.Collections.IDictionary)value;
+
+                // Special-case vector dictionaries {x,y[,z]} so they render as a single Vector field.
+                if (LooksLikeVector3Dictionary(dict))
+                {
+                    var v = new Vector3(
+                        GetFloatFromDictionary(dict, "x"),
+                        GetFloatFromDictionary(dict, "y"),
+                        GetFloatFromDictionary(dict, "z")
+                    );
+
+                    EditorGUI.BeginChangeCheck();
+#if ODIN_INSPECTOR
+                    v = SirenixEditorFields.Vector3Field(string.IsNullOrEmpty(label) ? "Vector3" : label, v);
+#else
+                    v = DrawVector3InlineField(string.IsNullOrEmpty(label) ? "Vector3" : label, v);
+#endif
+                    if (EditorGUI.EndChangeCheck())
+                    {
+                        dict["x"] = v.x;
+                        dict["y"] = v.y;
+                        dict["z"] = v.z;
+                        return true;
+                    }
+                    return false;
+                }
+
+                if (LooksLikeVector2Dictionary(dict))
+                {
+                    var v = new Vector2(
+                        GetFloatFromDictionary(dict, "x"),
+                        GetFloatFromDictionary(dict, "y")
+                    );
+
+                    EditorGUI.BeginChangeCheck();
+#if ODIN_INSPECTOR
+                    v = SirenixEditorFields.Vector2Field(string.IsNullOrEmpty(label) ? "Vector2" : label, v);
+#else
+                    v = DrawVector2InlineField(string.IsNullOrEmpty(label) ? "Vector2" : label, v);
+#endif
+                    if (EditorGUI.EndChangeCheck())
+                    {
+                        dict["x"] = v.x;
+                        dict["y"] = v.y;
+                        return true;
+                    }
+                    return false;
+                }
+
 #if ODIN_INSPECTOR
                 object boxed = value;
                 bool changed = DrawOdinValue(string.IsNullOrEmpty(label) ? "Dictionary" : label, ref boxed, path);
@@ -835,8 +400,7 @@ namespace NekoSerializer
                     value = boxed;
                 return changed;
 #else
-                EditorGUILayout.LabelField(string.IsNullOrEmpty(label) ? "Dictionary" : label, "(Dictionary editing requires Odin)");
-                return false;
+                return DrawEditableDictionary(string.IsNullOrEmpty(label) ? "Dictionary" : label, dict, path);
 #endif
             }
 
@@ -916,7 +480,11 @@ namespace NekoSerializer
             {
                 EditorGUI.BeginChangeCheck();
                 var v = (Vector2)value;
+#if ODIN_INSPECTOR
+                v = SirenixEditorFields.Vector2Field(string.IsNullOrEmpty(label) ? "Vector2" : label, v);
+#else
                 v = DrawVector2InlineField(string.IsNullOrEmpty(label) ? "Vector2" : label, v);
+#endif
                 if (EditorGUI.EndChangeCheck()) { value = v; return true; }
                 return false;
             }
@@ -924,7 +492,11 @@ namespace NekoSerializer
             {
                 EditorGUI.BeginChangeCheck();
                 var v = (Vector3)value;
+#if ODIN_INSPECTOR
+                v = SirenixEditorFields.Vector3Field(string.IsNullOrEmpty(label) ? "Vector3" : label, v);
+#else
                 v = DrawVector3InlineField(string.IsNullOrEmpty(label) ? "Vector3" : label, v);
+#endif
                 if (EditorGUI.EndChangeCheck()) { value = v; return true; }
                 return false;
             }
@@ -1018,6 +590,9 @@ namespace NekoSerializer
             if (string.IsNullOrEmpty(rootKey))
                 return;
             _dirtyRootKeys.Add(rootKey);
+
+            // Ensure the Save button state updates immediately.
+            Repaint();
         }
 
         private bool HasStagedChanges() => _dirtyRootKeys.Count > 0;
@@ -1033,7 +608,7 @@ namespace NekoSerializer
             {
                 if (!stagedSaveData.TryGetValue(key, out var value))
                     continue;
-                SerializationService.Save(key, value);
+                SerializationService.SaveWithoutUpdatingLastSaveTime(key, value);
             }
 
             _dirtyRootKeys.Clear();
@@ -1234,72 +809,167 @@ namespace NekoSerializer
 #endif
         }
 
-#if ODIN_INSPECTOR
-        private interface IOdinValueContainer
+#if !ODIN_INSPECTOR
+        private static bool TryGetDictionaryKeyValueTypes(System.Collections.IDictionary dict, out Type keyType, out Type valueType)
         {
-            object ValueObj { get; set; }
+            keyType = null;
+            valueType = null;
 
-            string Label { get; set; }
-        }
+            if (dict == null)
+                return false;
 
-        private sealed class OdinValueContainer<T> : IOdinValueContainer
-        {
-            [HideInInspector]
-            public string Label;
-
-            [Sirenix.OdinInspector.ShowInInspector]
-            [Sirenix.OdinInspector.LabelText("@this.Label")]
-            public T Value;
-
-            public object ValueObj
+            var t = dict.GetType();
+            if (t.IsGenericType)
             {
-                get => Value;
-                set => Value = value is T tv ? tv : default;
+                var args = t.GetGenericArguments();
+                if (args.Length == 2)
+                {
+                    keyType = args[0];
+                    valueType = args[1];
+                    return true;
+                }
             }
 
-            string IOdinValueContainer.Label
+            foreach (var it in t.GetInterfaces())
             {
-                get => Label;
-                set => Label = value;
+                if (!it.IsGenericType)
+                    continue;
+                if (it.GetGenericTypeDefinition() != typeof(IDictionary<,>))
+                    continue;
+                var args = it.GetGenericArguments();
+                keyType = args[0];
+                valueType = args[1];
+                return true;
             }
+
+            return false;
         }
 
-        private bool DrawOdinValue(string label, ref object value, string path)
+        private bool DrawEditableDictionary(string label, System.Collections.IDictionary dict, string path)
         {
-            if (value == null)
+            if (dict == null)
             {
-                EditorGUILayout.LabelField("null");
+                if (!string.IsNullOrWhiteSpace(label))
+                    EditorGUILayout.LabelField(label, "null");
+                else
+                    EditorGUILayout.LabelField("null");
                 return false;
             }
 
-            var t = value.GetType();
-            if (!_odinContainerByPath.TryGetValue(path, out var container) || container == null || container.ValueObj == null || container.ValueObj.GetType() != t)
+            string foldoutKey = $"{path}__dict";
+            if (!dictionaryFoldoutStates.ContainsKey(foldoutKey))
+                dictionaryFoldoutStates[foldoutKey] = true;
+
+            bool addClicked;
+            using (new EditorGUILayout.HorizontalScope())
             {
-                var containerType = typeof(OdinValueContainer<>).MakeGenericType(t);
-                container = (IOdinValueContainer)Activator.CreateInstance(containerType);
-                _odinContainerByPath[path] = container;
-                if (_odinTreeByPath.TryGetValue(path, out var oldTree) && oldTree != null)
+                dictionaryFoldoutStates[foldoutKey] = EditorGUILayout.Foldout(dictionaryFoldoutStates[foldoutKey], label, true);
+                GUILayout.FlexibleSpace();
+                GUILayout.Label($"{dict.Count} items", EditorStyles.miniLabel);
+                addClicked = GUILayout.Button("+", GUILayout.Width(26));
+            }
+
+            if (!dictionaryFoldoutStates[foldoutKey])
+                return false;
+
+            TryGetDictionaryKeyValueTypes(dict, out var keyType, out var valueType);
+
+            if (addClicked)
+            {
+                // Keep fallback simple and robust: only supports adding for string-key dictionaries.
+                if (keyType == null || keyType == typeof(string) || keyType == typeof(object))
                 {
-                    try { oldTree.Dispose(); } catch { }
+                    if (!_newDictionaryKeyByPath.TryGetValue(foldoutKey, out var newKey) || string.IsNullOrWhiteSpace(newKey))
+                        newKey = "New Key";
+
+                    string unique = newKey;
+                    int suffix = 1;
+                    while (dict.Contains(unique))
+                        unique = $"{newKey} {suffix++}";
+
+                    dict[unique] = CreateDefaultValue(valueType) ?? string.Empty;
+                    _newDictionaryKeyByPath[foldoutKey] = newKey;
                 }
-                _odinTreeByPath.Remove(path);
             }
 
-            container.Label = label;
-            container.ValueObj = value;
+            var keys = new List<object>(dict.Count);
+            foreach (System.Collections.DictionaryEntry entry in dict)
+                keys.Add(entry.Key);
 
-            if (!_odinTreeByPath.TryGetValue(path, out var tree) || tree == null)
+            int total = keys.Count;
+            int totalPages = Mathf.Max(1, Mathf.CeilToInt(total / (float)CollectionItemsPerPage));
+            int page = GetCollectionPage(foldoutKey);
+            if (page >= totalPages) page = totalPages - 1;
+            if (page < 0) page = 0;
+            _collectionPageByPath[foldoutKey] = page;
+
+            if (totalPages > 1)
             {
-                tree = PropertyTree.Create(container);
-                _odinTreeByPath[path] = tree;
+                using (new EditorGUILayout.HorizontalScope())
+                {
+                    using (new EditorGUI.DisabledScope(page <= 0))
+                    {
+                        if (GUILayout.Button("Prev", GUILayout.Width(50))) { page--; _collectionPageByPath[foldoutKey] = page; }
+                    }
+
+                    GUILayout.FlexibleSpace();
+                    GUILayout.Label($"Page {page + 1}/{totalPages}", EditorStyles.miniLabel);
+                    GUILayout.FlexibleSpace();
+
+                    using (new EditorGUI.DisabledScope(page >= totalPages - 1))
+                    {
+                        if (GUILayout.Button("Next", GUILayout.Width(50))) { page++; _collectionPageByPath[foldoutKey] = page; }
+                    }
+                }
             }
 
-            tree.UpdateTree();
-            EditorGUI.BeginChangeCheck();
-            tree.Draw(false);
-            bool changed = EditorGUI.EndChangeCheck();
-            if (changed)
-                value = container.ValueObj;
+            page = Mathf.Clamp(GetCollectionPage(foldoutKey), 0, totalPages - 1);
+            _collectionPageByPath[foldoutKey] = page;
+            int start = page * CollectionItemsPerPage;
+            int end = Mathf.Min(start + CollectionItemsPerPage, total);
+
+            bool changed = false;
+            object removeKey = null;
+
+            EditorGUI.indentLevel++;
+            for (int i = start; i < end; i++)
+            {
+                object key = keys[i];
+                object val = dict[key];
+
+                var rowRect = EditorGUILayout.GetControlRect(false, EditorGUIUtility.singleLineHeight + 6f);
+                rowRect.y += 2f;
+                rowRect.height = EditorGUIUtility.singleLineHeight;
+
+                var removeRect = new Rect(rowRect.xMax - 18f, rowRect.y, 18f, rowRect.height);
+                var fieldRect = new Rect(rowRect.x, rowRect.y, rowRect.width - 22f, rowRect.height);
+
+                const float keyW = 160f;
+                var keyRect = new Rect(fieldRect.x, fieldRect.y, Mathf.Min(keyW, fieldRect.width * 0.45f), fieldRect.height);
+                var valueRect = new Rect(keyRect.xMax + 6f, fieldRect.y, Mathf.Max(0f, fieldRect.width - keyRect.width - 6f), fieldRect.height);
+
+                EditorGUI.LabelField(keyRect, key?.ToString() ?? "null", EditorStyles.miniLabel);
+
+                object boxed = val;
+                EditorGUI.BeginChangeCheck();
+                DrawInlineElementField(valueRect, ref boxed, valueType);
+                if (EditorGUI.EndChangeCheck())
+                {
+                    dict[key] = CoerceToType(boxed, valueType);
+                    changed = true;
+                }
+
+                if (GUI.Button(removeRect, "x"))
+                    removeKey = key;
+            }
+            EditorGUI.indentLevel--;
+
+            if (removeKey != null)
+            {
+                dict.Remove(removeKey);
+                changed = true;
+            }
+
             return changed;
         }
 #endif
@@ -1483,10 +1153,56 @@ namespace NekoSerializer
             if (value is JValue jv) value = jv.Value;
             if (value == null) return false;
 
+            // Don't treat vector-shaped dictionaries as collections (they render as Vector fields).
+            if (value is System.Collections.IDictionary dict)
+            {
+                if (LooksLikeVector3Dictionary(dict) || LooksLikeVector2Dictionary(dict))
+                    return false;
+            }
+
             if (value is JArray ja) { count = ja.Count; return true; }
             if (value is System.Collections.ICollection coll) { count = coll.Count; return true; }
             if (value is Array arr) { count = arr.Length; return true; }
             return false;
+        }
+
+        private static bool LooksLikeVector2Dictionary(System.Collections.IDictionary dict)
+        {
+            if (dict == null) return false;
+            if (dict.Count != 2) return false;
+            return dict.Contains("x") && dict.Contains("y");
+        }
+
+        private static bool LooksLikeVector3Dictionary(System.Collections.IDictionary dict)
+        {
+            if (dict == null) return false;
+            if (dict.Count != 3) return false;
+            return dict.Contains("x") && dict.Contains("y") && dict.Contains("z");
+        }
+
+        private static float GetFloatFromDictionary(System.Collections.IDictionary dict, string key)
+        {
+            if (dict == null || key == null) return 0f;
+            if (!dict.Contains(key)) return 0f;
+
+            object raw = dict[key];
+            if (raw is JValue jv)
+                raw = jv.Value;
+
+            if (raw == null) return 0f;
+            if (raw is float f) return f;
+            if (raw is double d) return (float)d;
+            if (raw is int i) return i;
+            if (raw is long l) return l;
+
+            try
+            {
+                return Convert.ToSingle(raw);
+            }
+            catch
+            {
+                return 0f;
+            }
         }
 
         private static bool TryAddCollectionItem(ref object collection, string path)
@@ -1735,145 +1451,6 @@ namespace NekoSerializer
             return EditorGUI.IntField(fieldRect, value);
 #endif
         }
-
-
-        private static class JsonSyntaxHighlighter
-        {
-            private static readonly Color32 KeyColor = new(156, 220, 254, 255);     // VS Code JSON property
-            private static readonly Color32 StringColor = new(206, 145, 120, 255);  // VS Code string
-            private static readonly Color32 NumberColor = new(181, 206, 168, 255);  // VS Code number
-            private static readonly Color32 KeywordColor = new(86, 156, 214, 255);  // VS Code keywords (true/false/null)
-            private static readonly Color32 PunctColor = new(212, 212, 212, 255);   // VS Code punctuation
-
-            public static string Colorize(string json)
-            {
-                string pretty = json;
-                try
-                {
-                    pretty = JToken.Parse(json).ToString(Formatting.Indented);
-                }
-                catch
-                {
-                    // If parsing fails, fall back to raw.
-                    pretty = json;
-                }
-
-                var sb = new StringBuilder(pretty.Length * 2);
-                int i = 0;
-                while (i < pretty.Length)
-                {
-                    char c = pretty[i];
-
-                    // Whitespace
-                    if (char.IsWhiteSpace(c))
-                    {
-                        sb.Append(c);
-                        i++;
-                        continue;
-                    }
-
-                    // Strings (keys and values)
-                    if (c == '"')
-                    {
-                        int start = i;
-                        i++;
-                        bool escaped = false;
-                        while (i < pretty.Length)
-                        {
-                            char ch = pretty[i];
-                            if (escaped)
-                            {
-                                escaped = false;
-                                i++;
-                                continue;
-                            }
-
-                            if (ch == '\\')
-                            {
-                                escaped = true;
-                                i++;
-                                continue;
-                            }
-
-                            if (ch == '"')
-                            {
-                                i++; // include closing quote
-                                break;
-                            }
-
-                            i++;
-                        }
-
-                        string token = pretty.Substring(start, i - start);
-
-                        // Determine if this string is a property name (next non-ws char is ':')
-                        int j = i;
-                        while (j < pretty.Length && char.IsWhiteSpace(pretty[j])) j++;
-                        bool isKey = j < pretty.Length && pretty[j] == ':';
-
-                        sb.Append(token.Colorize(isKey ? KeyColor : StringColor));
-                        continue;
-                    }
-
-                    // Numbers
-                    if (c == '-' || char.IsDigit(c))
-                    {
-                        int start = i;
-                        i++;
-                        while (i < pretty.Length)
-                        {
-                            char ch = pretty[i];
-                            if (char.IsDigit(ch) || ch == '.' || ch == 'e' || ch == 'E' || ch == '+' || ch == '-')
-                                i++;
-                            else
-                                break;
-                        }
-
-                        string token = pretty.Substring(start, i - start);
-                        sb.Append(token.Colorize(NumberColor));
-                        continue;
-                    }
-
-                    // Keywords
-                    if (StartsWith(pretty, i, "true") || StartsWith(pretty, i, "false") || StartsWith(pretty, i, "null"))
-                    {
-                        string kw = StartsWith(pretty, i, "true") ? "true" : StartsWith(pretty, i, "false") ? "false" : "null";
-                        sb.Append(kw.Colorize(KeywordColor));
-                        i += kw.Length;
-                        continue;
-                    }
-
-                    // Punctuation
-                    if (c is '{' or '}' or '[' or ']' or ':' or ',')
-                    {
-                        sb.Append(c.Colorize(PunctColor));
-                        i++;
-                        continue;
-                    }
-
-                    // Fallback
-                    sb.Append(c);
-                    i++;
-                }
-
-                return sb.ToString();
-            }
-
-            private static bool StartsWith(string s, int index, string token)
-            {
-                if (index + token.Length > s.Length) return false;
-                for (int k = 0; k < token.Length; k++)
-                {
-                    if (s[index + k] != token[k]) return false;
-                }
-
-                // Ensure word boundary
-                int end = index + token.Length;
-                if (end < s.Length && char.IsLetterOrDigit(s[end])) return false;
-                return true;
-            }
-        }
-
         private bool DrawEditableJObject(string label, JObject obj, string path)
         {
             if (obj == null)
@@ -2188,10 +1765,47 @@ namespace NekoSerializer
             currentSaveData = GetDirectStorageData();
             UpdateRawJsonData();
 
+            // Save systems can warm an editor cache shortly after entering play mode.
+            // If we refresh too early, we can briefly see empty data.
+            // Do a small bounded retry so the UI shows "Loading..." instead of flashing empty.
+            if (currentSaveData.Count == 0 && !HasStagedChanges())
+            {
+                if (!_warmupDataRefreshActive)
+                {
+                    _warmupDataRefreshActive = true;
+                    _warmupDataRefreshTriesRemaining = 2;
+                }
+
+                if (_warmupDataRefreshTriesRemaining > 0)
+                {
+                    _warmupDataRefreshTriesRemaining--;
+                    EditorApplication.delayCall += () =>
+                    {
+                        if (this == null) return;
+                        if (!Application.isPlaying) return;
+                        if (HasStagedChanges()) return;
+                        Refresh();
+                    };
+                }
+                else
+                {
+                    _warmupDataRefreshActive = false;
+                }
+            }
+            else
+            {
+                _warmupDataRefreshActive = false;
+                _warmupDataRefreshTriesRemaining = 0;
+            }
+
             // Keep staged data in sync with storage when we don't have unsaved edits.
             if (!HasStagedChanges())
             {
                 stagedSaveData = new Dictionary<string, object>(currentSaveData);
+
+                DataViewCaptureRootKeyOrderFromCurrentSaveData();
+
+                PruneUiStateCachesForCurrentRoots();
 
 #if ODIN_INSPECTOR
                 DisposeOdinCaches();
@@ -2200,12 +1814,185 @@ namespace NekoSerializer
             Repaint();
         }
 
+        private void PruneUiStateCachesForCurrentRoots()
+        {
+            if (stagedSaveData == null || stagedSaveData.Count == 0)
+            {
+                foldoutStates.Clear();
+                dictionaryFoldoutStates.Clear();
+                _collectionPageByPath.Clear();
+                _newDictionaryKeyByPath.Clear();
+                return;
+            }
+
+            var roots = new HashSet<string>(stagedSaveData.Keys, StringComparer.Ordinal);
+
+            PruneByRoot(foldoutStates, roots);
+            PruneByRoot(dictionaryFoldoutStates, roots);
+            PruneByRoot(_collectionPageByPath, roots);
+            PruneByRoot(_newDictionaryKeyByPath, roots);
+        }
+
+        private void DataViewCaptureRootKeyOrderFromCurrentSaveData()
+        {
+            _dataViewRootKeyRawOrder.Clear();
+
+            // currentSaveData is the closest thing we have to "raw" order
+            // without re-reading/rehydrating from disk.
+            foreach (var kvp in currentSaveData)
+                _dataViewRootKeyRawOrder.Add(kvp.Key);
+
+            _dataViewRootKeyOrderDirty = true;
+        }
+
+        private IReadOnlyList<string> GetDataViewRootKeysForDisplay()
+        {
+            if (!_dataViewRootKeyOrderDirty)
+                return _dataViewRootKeyDisplayOrder;
+
+            _dataViewRootKeyDisplayOrder.Clear();
+
+            // Find the actual key casing for LastSaveTime, if present.
+            string lastSaveTimeKey = null;
+            foreach (var key in stagedSaveData.Keys)
+            {
+                if (string.Equals(key, "LastSaveTime", StringComparison.OrdinalIgnoreCase))
+                {
+                    lastSaveTimeKey = key;
+                    break;
+                }
+            }
+
+            var added = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            if (!string.IsNullOrEmpty(lastSaveTimeKey))
+            {
+                _dataViewRootKeyDisplayOrder.Add(lastSaveTimeKey);
+                added.Add(lastSaveTimeKey);
+            }
+
+            // First, follow the captured raw order.
+            for (int i = 0; i < _dataViewRootKeyRawOrder.Count; i++)
+            {
+                string key = _dataViewRootKeyRawOrder[i];
+                if (added.Contains(key))
+                    continue;
+
+                // Only include if it still exists in stagedSaveData.
+                if (stagedSaveData.ContainsKey(key))
+                {
+                    _dataViewRootKeyDisplayOrder.Add(key);
+                    added.Add(key);
+                }
+                else
+                {
+                    // Fallback for casing changes: try to match by ignore-case.
+                    foreach (var stagedKey in stagedSaveData.Keys)
+                    {
+                        if (added.Contains(stagedKey))
+                            continue;
+
+                        if (string.Equals(stagedKey, key, StringComparison.OrdinalIgnoreCase))
+                        {
+                            _dataViewRootKeyDisplayOrder.Add(stagedKey);
+                            added.Add(stagedKey);
+                            break;
+                        }
+                    }
+                }
+            }
+
+            // Finally, append any new roots that weren't in the captured order.
+            // This also preserves the runtime insertion order for newly created keys.
+            foreach (var key in stagedSaveData.Keys)
+            {
+                if (added.Contains(key))
+                    continue;
+
+                _dataViewRootKeyDisplayOrder.Add(key);
+                added.Add(key);
+            }
+
+            _dataViewRootKeyOrderDirty = false;
+            return _dataViewRootKeyDisplayOrder;
+        }
+
+        private static void PruneByRoot<T>(Dictionary<string, T> dict, HashSet<string> roots)
+        {
+            if (dict == null || dict.Count == 0)
+                return;
+
+            var toRemove = new List<string>();
+            foreach (var key in dict.Keys)
+            {
+                string root = GetRootKeyFromPathKey(key);
+                if (!roots.Contains(root))
+                    toRemove.Add(key);
+            }
+
+            for (int i = 0; i < toRemove.Count; i++)
+                dict.Remove(toRemove[i]);
+        }
+
+        private static string GetRootKeyFromPathKey(string key)
+        {
+            if (string.IsNullOrEmpty(key))
+                return string.Empty;
+
+            int dot = key.IndexOf('.');
+            int sep = key.IndexOf("__", StringComparison.Ordinal);
+
+            int cut;
+            if (dot < 0 && sep < 0)
+                cut = -1;
+            else if (dot < 0)
+                cut = sep;
+            else if (sep < 0)
+                cut = dot;
+            else
+                cut = Mathf.Min(dot, sep);
+
+            return cut <= 0 ? key : key.Substring(0, cut);
+        }
+
         private void RefreshJsonView()
         {
             if (!Application.isPlaying)
                 return;
 
             LoadDataDirectlyFromStorage();
+
+            // Mirror the same warm-up behavior for the JSON tab.
+            if ((rawJsonData == "{}" || string.IsNullOrEmpty(rawJsonData)) && !HasStagedChanges())
+            {
+                if (!_warmupJsonRefreshActive)
+                {
+                    _warmupJsonRefreshActive = true;
+                    _warmupJsonRefreshTriesRemaining = 2;
+                }
+
+                if (_warmupJsonRefreshTriesRemaining > 0)
+                {
+                    _warmupJsonRefreshTriesRemaining--;
+                    EditorApplication.delayCall += () =>
+                    {
+                        if (this == null) return;
+                        if (!Application.isPlaying) return;
+                        if (HasStagedChanges()) return;
+                        RefreshJsonView();
+                    };
+                }
+                else
+                {
+                    _warmupJsonRefreshActive = false;
+                }
+            }
+            else
+            {
+                _warmupJsonRefreshActive = false;
+                _warmupJsonRefreshTriesRemaining = 0;
+            }
+
             Repaint();
         }
 
@@ -2232,7 +2019,7 @@ namespace NekoSerializer
 
         private Dictionary<string, object> GetDirectStorageData()
         {
-            // In play mode, SaveLoadService warms and maintains an editor cache.
+            // In play mode, SerializationService warms and maintains an editor cache.
             // Use it for listing/inspection (especially for PlayerPrefs where keys can't be enumerated).
             return SerializationService.GetAllSaveDataCopy();
         }
@@ -2262,7 +2049,7 @@ namespace NekoSerializer
 
             if (EditorUtility.DisplayDialog(title, message, ok, cancel))
             {
-                // Delete all keys tracked by the library (from SaveLoadService editor cache).
+                // Delete all keys tracked by the library (from SerializationService editor cache).
                 var keys = new List<string>(SerializationService.GetAllSaveData().Keys);
                 foreach (var key in keys)
                 {
@@ -2275,8 +2062,17 @@ namespace NekoSerializer
 
         private void RestartGame()
         {
-            // Store flag in EditorPrefs to survive domain reload
-            EditorPrefs.SetBool("SaveLoadStorage_ShouldEnterPlayMode", true);
+            // Store flag in a project asset to survive domain reload (no machine-wide EditorPrefs).
+            try
+            {
+                var state = SerializerProjectEditorState.GetOrCreate();
+                state.DataViewerShouldEnterPlayMode = true;
+                state.SaveIfDirty();
+            }
+            catch
+            {
+                // Best-effort only.
+            }
 
             // Use EditorApplication.delayCall to ensure the current frame completes before restarting
             EditorApplication.delayCall += () =>
@@ -2302,9 +2098,24 @@ namespace NekoSerializer
 
         private static void CheckAndEnterPlayMode()
         {
-            if (EditorPrefs.GetBool("SaveLoadStorage_ShouldEnterPlayMode", false))
+            bool shouldEnter = false;
+            try
             {
-                EditorPrefs.DeleteKey("SaveLoadStorage_ShouldEnterPlayMode");
+                var state = SerializerProjectEditorState.GetOrCreate();
+                shouldEnter = state.DataViewerShouldEnterPlayMode;
+                if (shouldEnter)
+                {
+                    state.DataViewerShouldEnterPlayMode = false;
+                    state.SaveIfDirty();
+                }
+            }
+            catch
+            {
+                shouldEnter = false;
+            }
+
+            if (shouldEnter)
+            {
 
                 // Wait a bit more to ensure everything is fully loaded
                 EditorApplication.delayCall += () =>

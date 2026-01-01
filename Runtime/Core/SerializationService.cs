@@ -52,10 +52,10 @@ namespace NekoSerializer
         /// </summary>
         private static void LoadSettings()
         {
-            s_settings = Resources.Load<SerializerSettings>("SaveLoadSettings");
+            s_settings = Resources.Load<SerializerSettings>("SerializerSettings");
             if (s_settings == null)
             {
-                Log.Warn("[SaveLoadService] No SaveLoadSettings found in Resources folder. Using default settings in memory.");
+                Log.Warn("[SerializationService] No SerializerSettings found in Resources folder. Using default settings in memory.");
                 s_settings = ScriptableObject.CreateInstance<SerializerSettings>();
             }
         }
@@ -88,6 +88,18 @@ namespace NekoSerializer
             TrackEditorSave(LastSaveTimeKey, nowUtc);
 #endif
         }
+
+#if UNITY_EDITOR
+        /// <summary>
+        /// Save data directly to persistent storage immediately without updating last save time.
+        /// Intended for editor tooling.
+        /// </summary>
+        public static void SaveWithoutUpdatingLastSaveTime<T>(string key, T data)
+        {
+            Handler.Save(key, data);
+            TrackEditorSave(key, data);
+        }
+#endif
 
         /// <summary>
         /// Save data asynchronously to persistent storage.
@@ -186,7 +198,6 @@ namespace NekoSerializer
 
 #if UNITY_EDITOR
         private static readonly Dictionary<string, object> s_editorCache = new();
-        private const string EditorCacheKeysPref = "NekoSerializer.EditorCacheKeys";
 
         private static void TrackEditorSave(string key, object data)
         {
@@ -235,14 +246,9 @@ namespace NekoSerializer
 
         private static List<string> LoadEditorKeys()
         {
-            var json = UnityEditor.EditorPrefs.GetString(EditorCacheKeysPref, string.Empty);
-            if (string.IsNullOrWhiteSpace(json))
-                return new List<string>();
-
             try
             {
-                var keys = JsonSerializerUtils.DeserializeObject<List<string>>(json);
-                return keys ?? new List<string>();
+                return SerializerProjectEditorState.GetOrCreate().GetEditorCacheKeysCopy();
             }
             catch
             {
@@ -252,8 +258,16 @@ namespace NekoSerializer
 
         private static void SaveEditorKeys(List<string> keys)
         {
-            var json = JsonSerializerUtils.SerializeObject(keys ?? new List<string>());
-            UnityEditor.EditorPrefs.SetString(EditorCacheKeysPref, json);
+            try
+            {
+                var state = SerializerProjectEditorState.GetOrCreate();
+                state.SetEditorCacheKeys(keys ?? new List<string>());
+                state.SaveIfDirty();
+            }
+            catch
+            {
+                // Ignore editor cache persistence failures.
+            }
         }
 
         private static void WarmEditorCacheFromStorage()
@@ -334,11 +348,11 @@ namespace NekoSerializer
                 s_dataHandler = null;
                 s_settings = null;
 
-                Log.Info("[SaveLoadService] Service disposed and cleaned up.");
+                Log.Info("[SerializationService] Service disposed and cleaned up.");
             }
             catch (Exception e)
             {
-                Log.Error($"[SaveLoadService] Error during disposal: {e.Message.Colorize(Swatch.VR)}");
+                Log.Error($"[SerializationService] Error during disposal: {e.Message.Colorize(Swatch.VR)}");
             }
         }
 
