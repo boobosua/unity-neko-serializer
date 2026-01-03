@@ -120,7 +120,7 @@ namespace NekoSerializer
 #endif
             {
                 if (selectedTab == 0)
-                    RefreshDiscardingStagedChangesIfConfirmed();
+                    Refresh();
                 else
                     RefreshJsonView();
             }

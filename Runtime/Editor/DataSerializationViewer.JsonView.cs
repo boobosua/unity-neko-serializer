@@ -52,9 +52,6 @@ namespace NekoSerializer
             if (string.IsNullOrEmpty(json))
                 return json;
 
-            if (ReferenceEquals(_colorizedJsonCacheSource, json) && !string.IsNullOrEmpty(_colorizedJsonCache))
-                return _colorizedJsonCache;
-
             if (_colorizedJsonCacheSource == json && !string.IsNullOrEmpty(_colorizedJsonCache))
                 return _colorizedJsonCache;
 

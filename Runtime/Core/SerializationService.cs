@@ -86,6 +86,9 @@ namespace NekoSerializer
 #if UNITY_EDITOR
             TrackEditorSave(key, data);
             TrackEditorSave(LastSaveTimeKey, nowUtc);
+
+            if (Application.isPlaying)
+                NotifyEditorPlayModeSaved();
 #endif
         }
 
@@ -197,6 +200,30 @@ namespace NekoSerializer
         }
 
 #if UNITY_EDITOR
+        /// <summary>
+        /// Fired after gameplay calls <see cref="Save{T}"/> during Play Mode.
+        /// Not fired for <see cref="SaveWithoutUpdatingLastSaveTime{T}"/>.
+        /// </summary>
+        public static event Action EditorPlayModeSaved;
+
+        private static void NotifyEditorPlayModeSaved()
+        {
+            // SaveAsync may call Save from a background thread.
+            // Always marshal callbacks back to the editor main thread.
+            try
+            {
+                UnityEditor.EditorApplication.delayCall += () =>
+                {
+                    try { EditorPlayModeSaved?.Invoke(); }
+                    catch { /* best-effort */ }
+                };
+            }
+            catch
+            {
+                // Best-effort only.
+            }
+        }
+
         private static readonly Dictionary<string, object> s_editorCache = new();
 
         private static void TrackEditorSave(string key, object data)

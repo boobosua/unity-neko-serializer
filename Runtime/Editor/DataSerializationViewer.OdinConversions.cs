@@ -43,9 +43,9 @@ namespace NekoSerializer
                 for (int i = 0; i < ja.Count; i++)
                 {
                     var jo = (JObject)ja[i];
-                    float x = jo["x"]?.ToObject<float>() ?? 0f;
-                    float y = jo["y"]?.ToObject<float>() ?? 0f;
-                    float z = jo["z"]?.ToObject<float>() ?? 0f;
+                    float x = jo["x"]?.ToObject<float>(JsonSerializerUtils.GetSerializer()) ?? 0f;
+                    float y = jo["y"]?.ToObject<float>(JsonSerializerUtils.GetSerializer()) ?? 0f;
+                    float z = jo["z"]?.ToObject<float>(JsonSerializerUtils.GetSerializer()) ?? 0f;
                     list.Add(new Vector3(x, y, z));
                 }
 
@@ -59,8 +59,8 @@ namespace NekoSerializer
                 for (int i = 0; i < ja.Count; i++)
                 {
                     var jo = (JObject)ja[i];
-                    float x = jo["x"]?.ToObject<float>() ?? 0f;
-                    float y = jo["y"]?.ToObject<float>() ?? 0f;
+                    float x = jo["x"]?.ToObject<float>(JsonSerializerUtils.GetSerializer()) ?? 0f;
+                    float y = jo["y"]?.ToObject<float>(JsonSerializerUtils.GetSerializer()) ?? 0f;
                     list.Add(new Vector2(x, y));
                 }
 
@@ -109,9 +109,9 @@ namespace NekoSerializer
                 // Vector root -> true Vector2/Vector3 so Odin draws a normal vector field.
                 if (LooksLikeVector3JObject(jo))
                 {
-                    float x = jo["x"]?.ToObject<float>() ?? 0f;
-                    float y = jo["y"]?.ToObject<float>() ?? 0f;
-                    float z = jo["z"]?.ToObject<float>() ?? 0f;
+                    float x = jo["x"]?.ToObject<float>(JsonSerializerUtils.GetSerializer()) ?? 0f;
+                    float y = jo["y"]?.ToObject<float>(JsonSerializerUtils.GetSerializer()) ?? 0f;
+                    float z = jo["z"]?.ToObject<float>(JsonSerializerUtils.GetSerializer()) ?? 0f;
                     odinValue = new Vector3(x, y, z);
                     convertBack = edited => JTokenFromObject(edited) as JObject ?? new JObject();
                     return true;
@@ -119,8 +119,8 @@ namespace NekoSerializer
 
                 if (LooksLikeVector2JObject(jo))
                 {
-                    float x = jo["x"]?.ToObject<float>() ?? 0f;
-                    float y = jo["y"]?.ToObject<float>() ?? 0f;
+                    float x = jo["x"]?.ToObject<float>(JsonSerializerUtils.GetSerializer()) ?? 0f;
+                    float y = jo["y"]?.ToObject<float>(JsonSerializerUtils.GetSerializer()) ?? 0f;
                     odinValue = new Vector2(x, y);
                     convertBack = edited => JTokenFromObject(edited) as JObject ?? new JObject();
                     return true;
@@ -186,7 +186,7 @@ namespace NekoSerializer
             {
                 var list = new List<string>(ja.Count);
                 for (int i = 0; i < ja.Count; i++)
-                    list.Add(((JValue)ja[i]).ToObject<string>());
+                    list.Add(((JValue)ja[i]).ToObject<string>(JsonSerializerUtils.GetSerializer()));
                 typedList = list;
                 return true;
             }
@@ -195,7 +195,7 @@ namespace NekoSerializer
             {
                 var list = new List<bool>(ja.Count);
                 for (int i = 0; i < ja.Count; i++)
-                    list.Add(((JValue)ja[i]).ToObject<bool>());
+                    list.Add(((JValue)ja[i]).ToObject<bool>(JsonSerializerUtils.GetSerializer()));
                 typedList = list;
                 return true;
             }
@@ -204,7 +204,7 @@ namespace NekoSerializer
             {
                 var list = new List<long>(ja.Count);
                 for (int i = 0; i < ja.Count; i++)
-                    list.Add(((JValue)ja[i]).ToObject<long>());
+                    list.Add(((JValue)ja[i]).ToObject<long>(JsonSerializerUtils.GetSerializer()));
                 typedList = list;
                 return true;
             }
@@ -213,7 +213,7 @@ namespace NekoSerializer
             {
                 var list = new List<double>(ja.Count);
                 for (int i = 0; i < ja.Count; i++)
-                    list.Add(((JValue)ja[i]).ToObject<double>());
+                    list.Add(((JValue)ja[i]).ToObject<double>(JsonSerializerUtils.GetSerializer()));
                 typedList = list;
                 return true;
             }
@@ -253,9 +253,9 @@ namespace NekoSerializer
                 foreach (var prop in jo.Properties())
                 {
                     var v = (JObject)prop.Value;
-                    float x = v["x"]?.ToObject<float>() ?? 0f;
-                    float y = v["y"]?.ToObject<float>() ?? 0f;
-                    float z = v["z"]?.ToObject<float>() ?? 0f;
+                    float x = v["x"]?.ToObject<float>(JsonSerializerUtils.GetSerializer()) ?? 0f;
+                    float y = v["y"]?.ToObject<float>(JsonSerializerUtils.GetSerializer()) ?? 0f;
+                    float z = v["z"]?.ToObject<float>(JsonSerializerUtils.GetSerializer()) ?? 0f;
                     dict[prop.Name] = new Vector3(x, y, z);
                 }
 
@@ -269,8 +269,8 @@ namespace NekoSerializer
                 foreach (var prop in jo.Properties())
                 {
                     var v = (JObject)prop.Value;
-                    float x = v["x"]?.ToObject<float>() ?? 0f;
-                    float y = v["y"]?.ToObject<float>() ?? 0f;
+                    float x = v["x"]?.ToObject<float>(JsonSerializerUtils.GetSerializer()) ?? 0f;
+                    float y = v["y"]?.ToObject<float>(JsonSerializerUtils.GetSerializer()) ?? 0f;
                     dict[prop.Name] = new Vector2(x, y);
                 }
 
@@ -313,7 +313,7 @@ namespace NekoSerializer
             {
                 var dict = new Dictionary<string, string>(StringComparer.Ordinal);
                 foreach (var prop in jo.Properties())
-                    dict[prop.Name] = ((JValue)prop.Value).ToObject<string>();
+                    dict[prop.Name] = ((JValue)prop.Value).ToObject<string>(JsonSerializerUtils.GetSerializer());
                 typedDict = dict;
                 return true;
             }
@@ -322,7 +322,7 @@ namespace NekoSerializer
             {
                 var dict = new Dictionary<string, bool>(StringComparer.Ordinal);
                 foreach (var prop in jo.Properties())
-                    dict[prop.Name] = ((JValue)prop.Value).ToObject<bool>();
+                    dict[prop.Name] = ((JValue)prop.Value).ToObject<bool>(JsonSerializerUtils.GetSerializer());
                 typedDict = dict;
                 return true;
             }
@@ -331,7 +331,7 @@ namespace NekoSerializer
             {
                 var dict = new Dictionary<string, long>(StringComparer.Ordinal);
                 foreach (var prop in jo.Properties())
-                    dict[prop.Name] = ((JValue)prop.Value).ToObject<long>();
+                    dict[prop.Name] = ((JValue)prop.Value).ToObject<long>(JsonSerializerUtils.GetSerializer());
                 typedDict = dict;
                 return true;
             }
@@ -340,7 +340,7 @@ namespace NekoSerializer
             {
                 var dict = new Dictionary<string, double>(StringComparer.Ordinal);
                 foreach (var prop in jo.Properties())
-                    dict[prop.Name] = ((JValue)prop.Value).ToObject<double>();
+                    dict[prop.Name] = ((JValue)prop.Value).ToObject<double>(JsonSerializerUtils.GetSerializer());
                 typedDict = dict;
                 return true;
             }
@@ -361,16 +361,16 @@ namespace NekoSerializer
                 // Prefer real Unity vectors over dictionaries for {x,y[,z]}.
                 if (LooksLikeVector3JObject(jo))
                 {
-                    float x = jo["x"]?.ToObject<float>() ?? 0f;
-                    float y = jo["y"]?.ToObject<float>() ?? 0f;
-                    float z = jo["z"]?.ToObject<float>() ?? 0f;
+                    float x = jo["x"]?.ToObject<float>(JsonSerializerUtils.GetSerializer()) ?? 0f;
+                    float y = jo["y"]?.ToObject<float>(JsonSerializerUtils.GetSerializer()) ?? 0f;
+                    float z = jo["z"]?.ToObject<float>(JsonSerializerUtils.GetSerializer()) ?? 0f;
                     return new Vector3(x, y, z);
                 }
 
                 if (LooksLikeVector2JObject(jo))
                 {
-                    float x = jo["x"]?.ToObject<float>() ?? 0f;
-                    float y = jo["y"]?.ToObject<float>() ?? 0f;
+                    float x = jo["x"]?.ToObject<float>(JsonSerializerUtils.GetSerializer()) ?? 0f;
+                    float y = jo["y"]?.ToObject<float>(JsonSerializerUtils.GetSerializer()) ?? 0f;
                     return new Vector2(x, y);
                 }
 
@@ -388,7 +388,7 @@ namespace NekoSerializer
                 return list;
             }
 
-            return token.ToObject<object>();
+            return token.ToObject<object>(JsonSerializerUtils.GetSerializer());
         }
 
         private static JToken JTokenFromObject(object value)

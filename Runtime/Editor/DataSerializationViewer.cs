@@ -34,6 +34,12 @@ namespace NekoSerializer
         private readonly Dictionary<string, bool> foldoutStates = new();
         private readonly Dictionary<string, bool> dictionaryFoldoutStates = new();
 
+        // Struct/class drawing is handled via reflection in a single composite drawer.
+
+        // Used ONLY for deciding whether a JObject root should be rendered as a struct/class field group.
+        // This does not participate in serialization/deserialization.
+        private static readonly Dictionary<string, Type> s_viewerSerializableTypeByName = new(StringComparer.Ordinal);
+
         // Data View root ordering cache:
         // - LastSaveTime should always appear first.
         // - Everything else should follow the "raw" order coming from the save system.
@@ -64,6 +70,51 @@ namespace NekoSerializer
         // Pagination
         private int currentPage = 0;
         private const int itemsPerPage = 10;
+
+        private static bool DrawCompactPagerRight(ref int page, int totalPages)
+        {
+            if (totalPages <= 1)
+                return false;
+
+            bool changed = false;
+
+            using (new EditorGUILayout.HorizontalScope())
+            {
+                GUILayout.FlexibleSpace();
+
+                using (new EditorGUI.DisabledScope(page <= 0))
+                {
+                    if (GUILayout.Button("◀", GUILayout.Width(22)))
+                    {
+                        page = Mathf.Max(0, page - 1);
+                        changed = true;
+                    }
+                }
+
+                int pageOneBased = page + 1;
+                EditorGUI.BeginChangeCheck();
+                pageOneBased = EditorGUILayout.IntField(pageOneBased, GUILayout.Width(38));
+                if (EditorGUI.EndChangeCheck())
+                {
+                    pageOneBased = Mathf.Clamp(pageOneBased, 1, totalPages);
+                    page = pageOneBased - 1;
+                    changed = true;
+                }
+
+                GUILayout.Label($"/ {totalPages}", EditorStyles.miniLabel, GUILayout.Width(60));
+
+                using (new EditorGUI.DisabledScope(page >= totalPages - 1))
+                {
+                    if (GUILayout.Button("▶", GUILayout.Width(22)))
+                    {
+                        page = Mathf.Min(totalPages - 1, page + 1);
+                        changed = true;
+                    }
+                }
+            }
+
+            return changed;
+        }
 
         // Tab system
         private int selectedTab = 0;
@@ -114,6 +165,7 @@ namespace NekoSerializer
         {
             base.OnEnable();
             EditorApplication.playModeStateChanged += OnPlayModeStateChanged;
+            SerializationService.EditorPlayModeSaved += OnGameplaySaved;
             if (Application.isPlaying)
             {
                 if (selectedTab == 1)
@@ -127,6 +179,7 @@ namespace NekoSerializer
         {
             base.OnDisable();
             EditorApplication.playModeStateChanged -= OnPlayModeStateChanged;
+            SerializationService.EditorPlayModeSaved -= OnGameplaySaved;
 
             DisposeOdinCaches();
         }
@@ -134,6 +187,7 @@ namespace NekoSerializer
         private void OnEnable()
         {
             EditorApplication.playModeStateChanged += OnPlayModeStateChanged;
+            SerializationService.EditorPlayModeSaved += OnGameplaySaved;
             if (Application.isPlaying)
             {
                 if (selectedTab == 1)
@@ -146,8 +200,20 @@ namespace NekoSerializer
         private void OnDisable()
         {
             EditorApplication.playModeStateChanged -= OnPlayModeStateChanged;
+            SerializationService.EditorPlayModeSaved -= OnGameplaySaved;
         }
 #endif
+
+        private void OnGameplaySaved()
+        {
+            if (!Application.isPlaying)
+                return;
+
+            if (selectedTab == 1)
+                RefreshJsonView();
+            else
+                Refresh();
+        }
 
         private void OnPlayModeStateChanged(PlayModeStateChange state)
         {
@@ -333,7 +399,8 @@ namespace NekoSerializer
                 }
 
                 // Generic object (dictionary-like)
-                return DrawEditableJObject(string.IsNullOrEmpty(label) ? "Object" : label, jObject, path);
+                // Root values already have an outer foldout; avoid nested foldouts by using an empty label.
+                return DrawEditableJObjectAsComposite(label, jObject, path);
             }
 
             if (value is JArray jArray)
@@ -345,6 +412,11 @@ namespace NekoSerializer
             if (value is System.Collections.IDictionary)
             {
                 var dict = (System.Collections.IDictionary)value;
+
+                // Many serializable structs/classes round-trip through storage as Dictionary<string, object>.
+                // Treat that shape like an object (fields) rather than a "real" dictionary UI.
+                if (LooksLikeObjectDictionary(dict))
+                    return DrawEditableObjectDictionaryAsComposite(label, dict, path);
 
                 // Special-case vector dictionaries {x,y[,z]} so they render as a single Vector field.
                 if (LooksLikeVector3Dictionary(dict))
@@ -406,6 +478,53 @@ namespace NekoSerializer
 
             // Common primitives
             var t = value.GetType();
+
+            if (t.IsEnum)
+            {
+                EditorGUI.BeginChangeCheck();
+                var e = (Enum)value;
+                e = EditorGUILayout.EnumPopup(string.IsNullOrEmpty(label) ? ObjectNames.NicifyVariableName(t.Name) : label, e);
+                if (EditorGUI.EndChangeCheck())
+                {
+                    value = e;
+                    return true;
+                }
+                return false;
+            }
+
+            if (t == typeof(decimal))
+            {
+                EditorGUI.BeginChangeCheck();
+                decimal d = (decimal)value;
+                double dd = EditorGUILayout.DoubleField(string.IsNullOrEmpty(label) ? "Decimal" : label, (double)d);
+                if (EditorGUI.EndChangeCheck())
+                {
+                    try
+                    {
+                        value = (decimal)dd;
+                        return true;
+                    }
+                    catch
+                    {
+                        return false;
+                    }
+                }
+                return false;
+            }
+
+            if (typeof(UnityEngine.Object).IsAssignableFrom(t))
+            {
+                EditorGUI.BeginChangeCheck();
+                var o = (UnityEngine.Object)value;
+                o = EditorGUILayout.ObjectField(string.IsNullOrEmpty(label) ? ObjectNames.NicifyVariableName(t.Name) : label, o, t, true);
+                if (EditorGUI.EndChangeCheck())
+                {
+                    value = o;
+                    return true;
+                }
+                return false;
+            }
+
             if (t == typeof(string))
             {
                 EditorGUI.BeginChangeCheck();
@@ -573,16 +692,104 @@ namespace NekoSerializer
                 return DrawEditableList(label, list, elementType, path);
             }
 
-            // DateTime: show as read-only for now (can be enhanced later)
+            // DateTime: editable grouped editor (year/month/day/hour/minute/second...)
             if (t == typeof(DateTime))
             {
                 var dt = (DateTime)value;
-                EditorGUILayout.LabelField(string.IsNullOrEmpty(label) ? "DateTime" : label, dt.ToString());
+                if (DrawEditableDateTimeBox(string.IsNullOrEmpty(label) ? "DateTime" : label, dt, out var updated))
+                {
+                    value = updated;
+                    return true;
+                }
                 return false;
             }
 
-            // Serializable objects: draw Unity-like fields (public or [SerializeField])
-            return DrawEditableObjectFields(value, path);
+            // Serializable objects: draw as a foldable boxed group of fields/collections.
+            return DrawEditableCompositeObject(label, ref value, path);
+        }
+
+        private static bool DrawEditableDateTimeBox(string label, DateTime value, out DateTime updated)
+        {
+            updated = value;
+
+#if ODIN_INSPECTOR
+            SirenixEditorGUI.BeginBox();
+            EditorGUILayout.LabelField(label, EditorStyles.boldLabel);
+#else
+            EditorGUILayout.BeginVertical("helpBox");
+            EditorGUILayout.LabelField(label, EditorStyles.boldLabel);
+#endif
+
+            bool changed = DrawEditableDateTimeFields(value, out updated);
+
+#if ODIN_INSPECTOR
+            SirenixEditorGUI.EndBox();
+#else
+            EditorGUILayout.EndVertical();
+#endif
+
+            return changed;
+        }
+
+        private static bool DrawEditableDateTimeFields(DateTime value, out DateTime updated)
+        {
+            updated = value;
+
+            int year = value.Year;
+            int month = value.Month;
+            int day = value.Day;
+            int hour = value.Hour;
+            int minute = value.Minute;
+            int second = value.Second;
+            int millisecond = value.Millisecond;
+
+            EditorGUI.BeginChangeCheck();
+
+            year = ClampIntField("Year", year, 1, 9999);
+            month = ClampIntField("Month", month, 1, 12);
+
+            int maxDay;
+            try
+            {
+                maxDay = DateTime.DaysInMonth(year, month);
+            }
+            catch
+            {
+                maxDay = 28;
+            }
+
+            day = ClampIntField("Day", day, 1, maxDay);
+            hour = ClampIntField("Hour", hour, 0, 23);
+            minute = ClampIntField("Minute", minute, 0, 59);
+            second = ClampIntField("Second", second, 0, 59);
+            millisecond = ClampIntField("Millisecond", millisecond, 0, 999);
+
+            bool changed = EditorGUI.EndChangeCheck();
+            if (!changed)
+                return false;
+
+            try
+            {
+                updated = new DateTime(year, month, day, hour, minute, second, millisecond, value.Kind);
+                return true;
+            }
+            catch
+            {
+                updated = value;
+                return false;
+            }
+        }
+
+        private static int ClampIntField(string label, int value, int min, int max)
+        {
+#if ODIN_INSPECTOR
+            int next = SirenixEditorFields.IntField(label, value);
+#else
+            int next = EditorGUILayout.IntField(label, value);
+#endif
+            if (next < min) next = min;
+            if (next > max) next = max;
+            return next;
         }
 
         private void MarkRootDirty(string rootKey)
@@ -623,15 +830,7 @@ namespace NekoSerializer
             if (!Application.isPlaying)
                 return;
 
-            if (HasStagedChanges())
-            {
-                const string title = "Refresh";
-                const string message = "Discard staged changes and refresh from storage?";
-                if (!EditorUtility.DisplayDialog(title, message, "Discard & Refresh", "Cancel"))
-                    return;
-            }
-
-            _dirtyRootKeys.Clear();
+            // Backwards-compatible shim. Refresh is now unconditional.
             Refresh();
         }
 
@@ -645,52 +844,360 @@ namespace NekoSerializer
         }
 #endif
 
-        private bool DrawEditableObjectFields(object obj, string path)
+        private bool DrawEditableCompositeObject(string label, ref object value, string path)
         {
-            if (obj == null) return false;
+            if (value == null)
+                return false;
 
-            var type = obj.GetType();
-            var fields = type.GetFields(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+            // JSON tokens should stay on the JToken drawers.
+            if (value is JToken)
+                return false;
 
-            bool anyChanged = false;
-            foreach (var field in fields)
+            var type = value.GetType();
+
+            // These should have been handled by the primitive cases.
+            if (type.IsPrimitive || type.IsEnum || type == typeof(string) || type == typeof(decimal) || type == typeof(DateTime))
+                return false;
+
+            // Avoid reflection-drawing UnityEngine.Object internals.
+            if (typeof(UnityEngine.Object).IsAssignableFrom(type))
+                return false;
+
+            bool showHeader = !string.IsNullOrEmpty(label);
+            string foldoutKey = $"{path}__obj";
+
+            if (showHeader)
             {
-                if (field == null) continue;
-                if (field.IsStatic) continue;
-                if (Attribute.IsDefined(field, typeof(NonSerializedAttribute))) continue;
+                if (!dictionaryFoldoutStates.ContainsKey(foldoutKey))
+                    dictionaryFoldoutStates[foldoutKey] = true;
 
-                bool isUnitySerialized = field.IsPublic || Attribute.IsDefined(field, typeof(SerializeField));
-                if (!isUnitySerialized) continue;
-
-                string label = ObjectNames.NicifyVariableName(field.Name);
-                string childPath = string.IsNullOrEmpty(path) ? field.Name : path + "." + field.Name;
-
-                object fieldValue = field.GetValue(obj);
-                object boxed = fieldValue;
-                bool changed = DrawEditableAny(label, ref boxed, childPath);
-                if (changed)
+                EditorGUILayout.BeginVertical("box");
+                using (new EditorGUILayout.HorizontalScope())
                 {
-                    try
+                    dictionaryFoldoutStates[foldoutKey] = EditorGUILayout.Foldout(dictionaryFoldoutStates[foldoutKey], label, true);
+                    GUILayout.FlexibleSpace();
+                    GUILayout.Label(ObjectNames.NicifyVariableName(type.Name), EditorStyles.miniLabel);
+                }
+
+                if (!dictionaryFoldoutStates[foldoutKey])
+                {
+                    EditorGUILayout.EndVertical();
+                    return false;
+                }
+
+                EditorGUI.indentLevel++;
+            }
+
+            bool changed = false;
+            object target = value;
+            var fields = GetUnityLikeSerializableFields(type);
+            var serializer = JsonSerializerUtils.GetSerializer();
+
+            if (fields.Count == 0)
+            {
+                string typeName = GetReadableTypeName(value);
+                string valueDisplay = GetReadableValueDisplay(value);
+                EditorGUILayout.LabelField(typeName, valueDisplay);
+            }
+            else
+            {
+                for (int i = 0; i < fields.Count; i++)
+                {
+                    var field = fields[i];
+                    if (field == null) continue;
+
+                    string fieldLabel = ObjectNames.NicifyVariableName(field.Name);
+                    string childPath = string.IsNullOrEmpty(path) ? field.Name : path + "." + field.Name;
+
+                    object fieldValue;
+                    try { fieldValue = field.GetValue(target); }
+                    catch { continue; }
+
+                    object boxed = fieldValue;
+                    var expectedType = field.FieldType;
+                    bool fieldChanged;
+
+                    // If we know this field is a collection type, prefer the collection drawers.
+                    // This ensures struct/class fields that are lists/arrays/dicts get the same UX as normal collections.
+                    if (expectedType != null && expectedType.IsArray)
                     {
-                        field.SetValue(obj, boxed);
-                        anyChanged = true;
+                        if (boxed is JToken tok)
+                        {
+                            try { boxed = tok.ToObject(expectedType, serializer); }
+                            catch { /* ignore */ }
+                        }
+
+                        if (boxed is Array arr)
+                        {
+                            Type elementType = expectedType.GetElementType();
+                            fieldChanged = DrawEditableArray(fieldLabel, ref arr, elementType, childPath);
+                            if (fieldChanged)
+                                boxed = arr;
+                        }
+                        else
+                        {
+                            fieldChanged = DrawEditableAny(fieldLabel, ref boxed, childPath);
+                        }
                     }
-                    catch
+                    else if (expectedType != null && typeof(System.Collections.IList).IsAssignableFrom(expectedType))
                     {
-                        // If we can't set the field, fall back to read-only display.
+                        if (boxed is JToken tok)
+                        {
+                            try { boxed = tok.ToObject(expectedType, serializer); }
+                            catch { /* ignore */ }
+                        }
+
+                        if (boxed is System.Collections.IList list)
+                        {
+                            Type elementType = null;
+                            if (expectedType.IsGenericType && expectedType.GetGenericArguments().Length == 1)
+                                elementType = expectedType.GetGenericArguments()[0];
+                            fieldChanged = DrawEditableList(fieldLabel, list, elementType, childPath);
+                        }
+                        else
+                        {
+                            fieldChanged = DrawEditableAny(fieldLabel, ref boxed, childPath);
+                        }
+                    }
+                    else if (expectedType != null && typeof(System.Collections.IDictionary).IsAssignableFrom(expectedType))
+                    {
+                        if (boxed is JToken tok)
+                        {
+                            try { boxed = tok.ToObject(expectedType, serializer); }
+                            catch { /* ignore */ }
+                        }
+
+                        if (boxed is System.Collections.IDictionary dict)
+                        {
+#if ODIN_INSPECTOR
+                            object boxedDict = dict;
+                            fieldChanged = DrawOdinValue(fieldLabel, ref boxedDict, childPath);
+                            if (fieldChanged)
+                                boxed = boxedDict;
+#else
+                            fieldChanged = DrawEditableDictionary(fieldLabel, dict, childPath);
+                            if (fieldChanged)
+                                boxed = dict;
+#endif
+                        }
+                        else
+                        {
+                            fieldChanged = DrawEditableAny(fieldLabel, ref boxed, childPath);
+                        }
+                    }
+                    else
+                    {
+                        fieldChanged = DrawEditableAny(fieldLabel, ref boxed, childPath);
+                    }
+
+                    if (fieldChanged)
+                    {
+                        try
+                        {
+                            field.SetValue(target, CoerceToType(boxed, field.FieldType));
+                            changed = true;
+                        }
+                        catch
+                        {
+                            // ignore
+                        }
                     }
                 }
             }
 
-            // If we found no fields, show a compact value display as fallback.
-            if (fields == null || fields.Length == 0)
+            if (changed)
+                value = target;
+
+            if (showHeader)
             {
-                string typeName = GetReadableTypeName(obj);
-                string valueDisplay = GetReadableValueDisplay(obj);
-                EditorGUILayout.LabelField($"{typeName}:", valueDisplay);
+                EditorGUI.indentLevel--;
+                EditorGUILayout.EndVertical();
             }
 
-            return anyChanged;
+            return changed;
+        }
+
+        private static List<FieldInfo> GetUnityLikeSerializableFields(Type type)
+        {
+            var result = new List<FieldInfo>();
+            if (type == null)
+                return result;
+
+            const BindingFlags flags = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
+            var fields = type.GetFields(flags);
+            if (fields == null || fields.Length == 0)
+                return result;
+
+            for (int i = 0; i < fields.Length; i++)
+            {
+                var field = fields[i];
+                if (field == null) continue;
+                if (field.IsStatic) continue;
+                if (Attribute.IsDefined(field, typeof(NonSerializedAttribute))) continue;
+                if (Attribute.IsDefined(field, typeof(HideInInspector))) continue;
+
+                bool isUnitySerialized = field.IsPublic || Attribute.IsDefined(field, typeof(SerializeField));
+                if (!isUnitySerialized) continue;
+
+                result.Add(field);
+            }
+
+            // Deterministic order.
+            result.Sort((a, b) => string.CompareOrdinal(a.Name, b.Name));
+            return result;
+        }
+
+        private static bool ShouldRenderJObjectRootAsStructFields(string rootKey, JObject obj)
+        {
+            if (string.IsNullOrEmpty(rootKey) || obj == null)
+                return false;
+
+            // Heuristic: if the root key matches a [Serializable] type name, and the JObject's properties
+            // are a subset of that type's serializable fields, treat it as a struct/class.
+            if (!TryResolveViewerSerializableTypeByName(rootKey, out var type))
+                return false;
+
+            var fields = GetUnityLikeSerializableFields(type);
+            if (fields.Count == 0)
+                return false;
+
+            var fieldNames = new HashSet<string>(StringComparer.Ordinal);
+            for (int i = 0; i < fields.Count; i++)
+                fieldNames.Add(fields[i].Name);
+
+            int checkedCount = 0;
+            foreach (var prop in obj.Properties())
+            {
+                // Ignore metadata-like properties.
+                if (prop.Name != null && prop.Name.StartsWith("$", StringComparison.Ordinal))
+                    continue;
+
+                checkedCount++;
+                if (!fieldNames.Contains(prop.Name))
+                    return false;
+            }
+
+            return checkedCount > 0;
+        }
+
+        private static bool TryResolveViewerSerializableTypeByName(string typeName, out Type resolved)
+        {
+            resolved = null;
+            if (string.IsNullOrEmpty(typeName))
+                return false;
+
+            if (s_viewerSerializableTypeByName.TryGetValue(typeName, out resolved))
+                return resolved != null;
+
+            try
+            {
+                var assemblies = AppDomain.CurrentDomain.GetAssemblies();
+                for (int i = 0; i < assemblies.Length; i++)
+                {
+                    var asm = assemblies[i];
+                    Type[] types;
+                    try { types = asm.GetTypes(); }
+                    catch { continue; }
+
+                    for (int t = 0; t < types.Length; t++)
+                    {
+                        var candidate = types[t];
+                        if (candidate == null) continue;
+                        if (candidate.Name != typeName) continue;
+                        if (candidate.IsAbstract) continue;
+                        if (!(candidate.IsClass || candidate.IsValueType)) continue;
+                        if (candidate.IsPrimitive) continue;
+                        if (candidate == typeof(string)) continue;
+                        if (!candidate.IsSerializable) continue;
+
+                        // Only treat types with at least one Unity-like serializable field as "struct/class".
+                        if (GetUnityLikeSerializableFields(candidate).Count == 0)
+                            continue;
+
+                        resolved = candidate;
+                        s_viewerSerializableTypeByName[typeName] = resolved;
+                        return true;
+                    }
+                }
+            }
+            catch
+            {
+                // ignore
+            }
+
+            s_viewerSerializableTypeByName[typeName] = null;
+            return false;
+        }
+
+        private static bool TryResolveViewerSerializableTypeForPath(string path, out Type resolved)
+        {
+            resolved = null;
+            if (string.IsNullOrEmpty(path))
+                return false;
+
+            // Walk a dot-separated path: RootKey.FieldA.FieldB
+            var parts = path.Split('.');
+            if (parts.Length == 0)
+                return false;
+
+            if (!TryResolveViewerSerializableTypeByName(parts[0], out var current))
+                return false;
+
+            for (int i = 1; i < parts.Length; i++)
+            {
+                if (current == null)
+                    return false;
+
+                var fields = GetUnityLikeSerializableFields(current);
+                FieldInfo match = null;
+                for (int f = 0; f < fields.Count; f++)
+                {
+                    var fi = fields[f];
+                    if (fi != null && string.Equals(fi.Name, parts[i], StringComparison.Ordinal))
+                    {
+                        match = fi;
+                        break;
+                    }
+                }
+
+                if (match == null)
+                    return false;
+
+                current = match.FieldType;
+            }
+
+            resolved = current;
+            return resolved != null;
+        }
+
+        private static Dictionary<string, Type> TryGetExpectedFieldTypesForPath(string path)
+        {
+            if (!TryResolveViewerSerializableTypeForPath(path, out var typeAtPath))
+                return null;
+
+            if (typeAtPath == null)
+                return null;
+
+            // Only map fields for composite types.
+            if (typeAtPath.IsPrimitive || typeAtPath.IsEnum || typeAtPath == typeof(string) || typeAtPath == typeof(decimal) || typeAtPath == typeof(DateTime))
+                return null;
+
+            if (typeof(UnityEngine.Object).IsAssignableFrom(typeAtPath))
+                return null;
+
+            var fields = GetUnityLikeSerializableFields(typeAtPath);
+            if (fields.Count == 0)
+                return null;
+
+            var map = new Dictionary<string, Type>(StringComparer.Ordinal);
+            for (int i = 0; i < fields.Count; i++)
+            {
+                var fi = fields[i];
+                if (fi == null) continue;
+                map[fi.Name] = fi.FieldType;
+            }
+
+            return map;
         }
 
         private bool DrawEditableArray(string label, ref Array array, Type elementType, string path)
@@ -905,22 +1412,8 @@ namespace NekoSerializer
 
             if (totalPages > 1)
             {
-                using (new EditorGUILayout.HorizontalScope())
-                {
-                    using (new EditorGUI.DisabledScope(page <= 0))
-                    {
-                        if (GUILayout.Button("Prev", GUILayout.Width(50))) { page--; _collectionPageByPath[foldoutKey] = page; }
-                    }
-
-                    GUILayout.FlexibleSpace();
-                    GUILayout.Label($"Page {page + 1}/{totalPages}", EditorStyles.miniLabel);
-                    GUILayout.FlexibleSpace();
-
-                    using (new EditorGUI.DisabledScope(page >= totalPages - 1))
-                    {
-                        if (GUILayout.Button("Next", GUILayout.Width(50))) { page++; _collectionPageByPath[foldoutKey] = page; }
-                    }
-                }
+                if (DrawCompactPagerRight(ref page, totalPages))
+                    _collectionPageByPath[foldoutKey] = page;
             }
 
             page = Mathf.Clamp(GetCollectionPage(foldoutKey), 0, totalPages - 1);
@@ -1008,7 +1501,7 @@ namespace NekoSerializer
                 for (int i = 0; i < temp.Count; i++)
                 {
                     var token = temp[i] as JToken;
-                    array.Add(token ?? JToken.FromObject(temp[i]));
+                    array.Add(token ?? JToken.FromObject(temp[i], JsonSerializerUtils.GetSerializer()));
                 }
             }
 
@@ -1040,22 +1533,8 @@ namespace NekoSerializer
             // For nested collections (label not empty), keep pagination above the list.
             if (!string.IsNullOrWhiteSpace(label) && totalPages > 1)
             {
-                using (new EditorGUILayout.HorizontalScope())
-                {
-                    using (new EditorGUI.DisabledScope(page <= 0))
-                    {
-                        if (GUILayout.Button("Prev", GUILayout.Width(50))) { page--; _collectionPageByPath[path] = page; }
-                    }
-
-                    GUILayout.FlexibleSpace();
-                    GUILayout.Label($"Page {page + 1}/{totalPages}", EditorStyles.miniLabel);
-                    GUILayout.FlexibleSpace();
-
-                    using (new EditorGUI.DisabledScope(page >= totalPages - 1))
-                    {
-                        if (GUILayout.Button("Next", GUILayout.Width(50))) { page++; _collectionPageByPath[path] = page; }
-                    }
-                }
+                if (DrawCompactPagerRight(ref page, totalPages))
+                    _collectionPageByPath[path] = page;
             }
 
             total = items?.Count ?? 0;
@@ -1171,6 +1650,174 @@ namespace NekoSerializer
             if (dict == null) return false;
             if (dict.Count != 2) return false;
             return dict.Contains("x") && dict.Contains("y");
+
+        }
+
+        private static bool LooksLikeObjectDictionary(System.Collections.IDictionary dict)
+        {
+            if (dict == null)
+                return false;
+
+            // Must have string keys.
+            foreach (System.Collections.DictionaryEntry entry in dict)
+            {
+                if (entry.Key is not string)
+                    return false;
+            }
+
+            var t = dict.GetType();
+            if (t.IsGenericType)
+            {
+                var args = t.GetGenericArguments();
+                if (args.Length == 2)
+                {
+                    var keyType = args[0];
+                    var valueType = args[1];
+                    if (keyType != typeof(string) && keyType != typeof(object))
+                        return false;
+                    if (valueType != typeof(object))
+                        return false;
+                }
+            }
+
+            return true;
+        }
+
+        private bool DrawEditableObjectDictionaryAsComposite(string label, System.Collections.IDictionary dict, string path)
+        {
+            if (dict == null)
+            {
+                if (!string.IsNullOrEmpty(label))
+                    EditorGUILayout.LabelField(label, "null");
+                else
+                    EditorGUILayout.LabelField("null");
+                return false;
+            }
+
+            bool showHeader = !string.IsNullOrEmpty(label);
+            string foldoutKey = $"{path}__objdictbox";
+
+            if (showHeader)
+            {
+                if (!dictionaryFoldoutStates.ContainsKey(foldoutKey))
+                    dictionaryFoldoutStates[foldoutKey] = true;
+
+                EditorGUILayout.BeginVertical("box");
+                dictionaryFoldoutStates[foldoutKey] = EditorGUILayout.Foldout(dictionaryFoldoutStates[foldoutKey], label, true);
+
+                if (!dictionaryFoldoutStates[foldoutKey])
+                {
+                    EditorGUILayout.EndVertical();
+                    return false;
+                }
+
+                EditorGUI.indentLevel++;
+            }
+
+            bool changed = false;
+            var serializer = JsonSerializerUtils.GetSerializer();
+            var expectedTypes = TryGetExpectedFieldTypesForPath(path);
+            foreach (System.Collections.DictionaryEntry entry in dict)
+            {
+                string key = entry.Key as string;
+                if (string.IsNullOrEmpty(key))
+                    continue;
+
+                string propLabel = ObjectNames.NicifyVariableName(key);
+                string childPath = string.IsNullOrEmpty(path) ? key : path + "." + key;
+
+                object boxed = entry.Value;
+
+                bool entryChanged;
+                if (expectedTypes != null && expectedTypes.TryGetValue(key, out var expectedType) && expectedType != null)
+                {
+                    if (expectedType.IsArray)
+                    {
+                        if (boxed is JToken tok)
+                        {
+                            try { boxed = tok.ToObject(expectedType, serializer); }
+                            catch { /* ignore */ }
+                        }
+
+                        if (boxed is Array arr)
+                        {
+                            var elementType = expectedType.GetElementType();
+                            entryChanged = DrawEditableArray(propLabel, ref arr, elementType, childPath);
+                            if (entryChanged) boxed = arr;
+                        }
+                        else
+                        {
+                            entryChanged = DrawEditableAny(propLabel, ref boxed, childPath);
+                        }
+                    }
+                    else if (typeof(System.Collections.IList).IsAssignableFrom(expectedType))
+                    {
+                        if (boxed is JToken tok)
+                        {
+                            try { boxed = tok.ToObject(expectedType, serializer); }
+                            catch { /* ignore */ }
+                        }
+
+                        if (boxed is System.Collections.IList list)
+                        {
+                            Type elementType = null;
+                            if (expectedType.IsGenericType && expectedType.GetGenericArguments().Length == 1)
+                                elementType = expectedType.GetGenericArguments()[0];
+                            entryChanged = DrawEditableList(propLabel, list, elementType, childPath);
+                        }
+                        else
+                        {
+                            entryChanged = DrawEditableAny(propLabel, ref boxed, childPath);
+                        }
+                    }
+                    else if (typeof(System.Collections.IDictionary).IsAssignableFrom(expectedType))
+                    {
+                        if (boxed is JToken tok)
+                        {
+                            try { boxed = tok.ToObject(expectedType, serializer); }
+                            catch { /* ignore */ }
+                        }
+
+                        if (boxed is System.Collections.IDictionary subDict)
+                        {
+#if ODIN_INSPECTOR
+                            object boxedDict = subDict;
+                            entryChanged = DrawOdinValue(propLabel, ref boxedDict, childPath);
+                            if (entryChanged) boxed = boxedDict;
+#else
+                            entryChanged = DrawEditableDictionary(propLabel, subDict, childPath);
+                            if (entryChanged) boxed = subDict;
+#endif
+                        }
+                        else
+                        {
+                            entryChanged = DrawEditableAny(propLabel, ref boxed, childPath);
+                        }
+                    }
+                    else
+                    {
+                        entryChanged = DrawEditableAny(propLabel, ref boxed, childPath);
+                    }
+                }
+                else
+                {
+                    entryChanged = DrawEditableAny(propLabel, ref boxed, childPath);
+                }
+
+                if (entryChanged)
+                {
+                    dict[key] = boxed;
+                    changed = true;
+                }
+            }
+
+            if (showHeader)
+            {
+                EditorGUI.indentLevel--;
+                EditorGUILayout.EndVertical();
+            }
+
+            return changed;
         }
 
         private static bool LooksLikeVector3Dictionary(System.Collections.IDictionary dict)
@@ -1268,14 +1915,19 @@ namespace NekoSerializer
                 bool looksV3 = jobj.ContainsKey("x") && jobj.ContainsKey("y") && jobj.ContainsKey("z") && !jobj.ContainsKey("w");
                 if (looksV3)
                 {
-                    var v = new Vector3(jobj["x"]?.ToObject<float>() ?? 0f, jobj["y"]?.ToObject<float>() ?? 0f, jobj["z"]?.ToObject<float>() ?? 0f);
+                    var v = new Vector3(
+                        jobj["x"]?.ToObject<float>(JsonSerializerUtils.GetSerializer()) ?? 0f,
+                        jobj["y"]?.ToObject<float>(JsonSerializerUtils.GetSerializer()) ?? 0f,
+                        jobj["z"]?.ToObject<float>(JsonSerializerUtils.GetSerializer()) ?? 0f);
                     DrawInlineVector3(rect, ref v);
                     value = new JObject { ["x"] = v.x, ["y"] = v.y, ["z"] = v.z };
                     return;
                 }
                 if (looksV2)
                 {
-                    var v = new Vector2(jobj["x"]?.ToObject<float>() ?? 0f, jobj["y"]?.ToObject<float>() ?? 0f);
+                    var v = new Vector2(
+                        jobj["x"]?.ToObject<float>(JsonSerializerUtils.GetSerializer()) ?? 0f,
+                        jobj["y"]?.ToObject<float>(JsonSerializerUtils.GetSerializer()) ?? 0f);
                     DrawInlineVector2(rect, ref v);
                     value = new JObject { ["x"] = v.x, ["y"] = v.y };
                     return;
@@ -1451,36 +2103,137 @@ namespace NekoSerializer
             return EditorGUI.IntField(fieldRect, value);
 #endif
         }
-        private bool DrawEditableJObject(string label, JObject obj, string path)
+
+        private bool DrawEditableJObjectAsComposite(string label, JObject obj, string path)
         {
             if (obj == null)
             {
-                EditorGUILayout.LabelField(label, "null");
+                if (!string.IsNullOrEmpty(label))
+                    EditorGUILayout.LabelField(label, "null");
+                else
+                    EditorGUILayout.LabelField("null");
                 return false;
             }
 
-            string foldoutKey = $"{path}__jobj";
-            if (!dictionaryFoldoutStates.ContainsKey(foldoutKey))
-                dictionaryFoldoutStates[foldoutKey] = true;
+            bool showHeader = !string.IsNullOrEmpty(label);
+            string foldoutKey = $"{path}__jobjbox";
 
-            dictionaryFoldoutStates[foldoutKey] = EditorGUILayout.Foldout(dictionaryFoldoutStates[foldoutKey], label, true);
-            if (!dictionaryFoldoutStates[foldoutKey])
-                return false;
+            if (showHeader)
+            {
+                if (!dictionaryFoldoutStates.ContainsKey(foldoutKey))
+                    dictionaryFoldoutStates[foldoutKey] = true;
 
-            EditorGUI.indentLevel++;
+                EditorGUILayout.BeginVertical("box");
+                dictionaryFoldoutStates[foldoutKey] = EditorGUILayout.Foldout(dictionaryFoldoutStates[foldoutKey], label, true);
+
+                if (!dictionaryFoldoutStates[foldoutKey])
+                {
+                    EditorGUILayout.EndVertical();
+                    return false;
+                }
+
+                EditorGUI.indentLevel++;
+            }
+
             bool changed = false;
+            var serializer = JsonSerializerUtils.GetSerializer();
+            var expectedTypes = TryGetExpectedFieldTypesForPath(path);
             foreach (var prop in obj.Properties())
             {
                 string propLabel = ObjectNames.NicifyVariableName(prop.Name);
                 string childPath = string.IsNullOrEmpty(path) ? prop.Name : path + "." + prop.Name;
+
                 object boxed = prop.Value;
-                if (DrawEditableAny(propLabel, ref boxed, childPath))
+                bool propChanged;
+
+                if (expectedTypes != null && expectedTypes.TryGetValue(prop.Name, out var expectedType) && expectedType != null)
                 {
-                    prop.Value = boxed as JToken ?? JToken.FromObject(boxed);
+                    if (expectedType.IsArray)
+                    {
+                        if (prop.Value is JToken tok)
+                        {
+                            try { boxed = tok.ToObject(expectedType, serializer); }
+                            catch { boxed = prop.Value; }
+                        }
+
+                        if (boxed is Array arr)
+                        {
+                            var elementType = expectedType.GetElementType();
+                            propChanged = DrawEditableArray(propLabel, ref arr, elementType, childPath);
+                            if (propChanged) boxed = arr;
+                        }
+                        else
+                        {
+                            propChanged = DrawEditableAny(propLabel, ref boxed, childPath);
+                        }
+                    }
+                    else if (typeof(System.Collections.IList).IsAssignableFrom(expectedType))
+                    {
+                        if (prop.Value is JToken tok)
+                        {
+                            try { boxed = tok.ToObject(expectedType, serializer); }
+                            catch { boxed = prop.Value; }
+                        }
+
+                        if (boxed is System.Collections.IList list)
+                        {
+                            Type elementType = null;
+                            if (expectedType.IsGenericType && expectedType.GetGenericArguments().Length == 1)
+                                elementType = expectedType.GetGenericArguments()[0];
+                            propChanged = DrawEditableList(propLabel, list, elementType, childPath);
+                        }
+                        else
+                        {
+                            propChanged = DrawEditableAny(propLabel, ref boxed, childPath);
+                        }
+                    }
+                    else if (typeof(System.Collections.IDictionary).IsAssignableFrom(expectedType))
+                    {
+                        if (prop.Value is JToken tok)
+                        {
+                            try { boxed = tok.ToObject(expectedType, serializer); }
+                            catch { boxed = prop.Value; }
+                        }
+
+                        if (boxed is System.Collections.IDictionary dict)
+                        {
+#if ODIN_INSPECTOR
+                            object boxedDict = dict;
+                            propChanged = DrawOdinValue(propLabel, ref boxedDict, childPath);
+                            if (propChanged) boxed = boxedDict;
+#else
+                            propChanged = DrawEditableDictionary(propLabel, dict, childPath);
+                            if (propChanged) boxed = dict;
+#endif
+                        }
+                        else
+                        {
+                            propChanged = DrawEditableAny(propLabel, ref boxed, childPath);
+                        }
+                    }
+                    else
+                    {
+                        propChanged = DrawEditableAny(propLabel, ref boxed, childPath);
+                    }
+                }
+                else
+                {
+                    propChanged = DrawEditableAny(propLabel, ref boxed, childPath);
+                }
+
+                if (propChanged)
+                {
+                    prop.Value = boxed as JToken ?? JToken.FromObject(boxed, serializer);
                     changed = true;
                 }
             }
-            EditorGUI.indentLevel--;
+
+            if (showHeader)
+            {
+                EditorGUI.indentLevel--;
+                EditorGUILayout.EndVertical();
+            }
+
             return changed;
         }
 
@@ -1634,8 +2387,8 @@ namespace NekoSerializer
             if (value is Vector2 vector2) return vector2;
             if (value is Newtonsoft.Json.Linq.JObject jobj)
             {
-                float x = jobj["x"]?.ToObject<float>() ?? 0f;
-                float y = jobj["y"]?.ToObject<float>() ?? 0f;
+                float x = jobj["x"]?.ToObject<float>(JsonSerializerUtils.GetSerializer()) ?? 0f;
+                float y = jobj["y"]?.ToObject<float>(JsonSerializerUtils.GetSerializer()) ?? 0f;
                 return new Vector2(x, y);
             }
             return Vector2.zero;
@@ -1654,9 +2407,9 @@ namespace NekoSerializer
             if (value is Vector3 vector3) return vector3;
             if (value is Newtonsoft.Json.Linq.JObject jobj)
             {
-                float x = jobj["x"]?.ToObject<float>() ?? 0f;
-                float y = jobj["y"]?.ToObject<float>() ?? 0f;
-                float z = jobj["z"]?.ToObject<float>() ?? 0f;
+                float x = jobj["x"]?.ToObject<float>(JsonSerializerUtils.GetSerializer()) ?? 0f;
+                float y = jobj["y"]?.ToObject<float>(JsonSerializerUtils.GetSerializer()) ?? 0f;
+                float z = jobj["z"]?.ToObject<float>(JsonSerializerUtils.GetSerializer()) ?? 0f;
                 return new Vector3(x, y, z);
             }
             return Vector3.zero;
@@ -1762,13 +2515,16 @@ namespace NekoSerializer
             if (!Application.isPlaying)
                 return;
 
+            // Refresh is unconditional: always reload from storage and discard staged edits.
+            _dirtyRootKeys.Clear();
+
             currentSaveData = GetDirectStorageData();
             UpdateRawJsonData();
 
             // Save systems can warm an editor cache shortly after entering play mode.
             // If we refresh too early, we can briefly see empty data.
             // Do a small bounded retry so the UI shows "Loading..." instead of flashing empty.
-            if (currentSaveData.Count == 0 && !HasStagedChanges())
+            if (currentSaveData.Count == 0)
             {
                 if (!_warmupDataRefreshActive)
                 {
@@ -1783,13 +2539,13 @@ namespace NekoSerializer
                     {
                         if (this == null) return;
                         if (!Application.isPlaying) return;
-                        if (HasStagedChanges()) return;
                         Refresh();
                     };
                 }
                 else
                 {
                     _warmupDataRefreshActive = false;
+                    _warmupDataRefreshTriesRemaining = 0;
                 }
             }
             else
@@ -1798,19 +2554,15 @@ namespace NekoSerializer
                 _warmupDataRefreshTriesRemaining = 0;
             }
 
-            // Keep staged data in sync with storage when we don't have unsaved edits.
-            if (!HasStagedChanges())
-            {
-                stagedSaveData = new Dictionary<string, object>(currentSaveData);
+            stagedSaveData = new Dictionary<string, object>(currentSaveData);
 
-                DataViewCaptureRootKeyOrderFromCurrentSaveData();
+            DataViewCaptureRootKeyOrderFromCurrentSaveData();
 
-                PruneUiStateCachesForCurrentRoots();
+            PruneUiStateCachesForCurrentRoots();
 
 #if ODIN_INSPECTOR
-                DisposeOdinCaches();
+            DisposeOdinCaches();
 #endif
-            }
             Repaint();
         }
 
@@ -1963,7 +2715,7 @@ namespace NekoSerializer
             LoadDataDirectlyFromStorage();
 
             // Mirror the same warm-up behavior for the JSON tab.
-            if ((rawJsonData == "{}" || string.IsNullOrEmpty(rawJsonData)) && !HasStagedChanges())
+            if (rawJsonData == "{}" || string.IsNullOrEmpty(rawJsonData))
             {
                 if (!_warmupJsonRefreshActive)
                 {
@@ -1978,7 +2730,6 @@ namespace NekoSerializer
                     {
                         if (this == null) return;
                         if (!Application.isPlaying) return;
-                        if (HasStagedChanges()) return;
                         RefreshJsonView();
                     };
                 }
@@ -2033,7 +2784,7 @@ namespace NekoSerializer
             }
             catch (System.Exception e)
             {
-                rawJsonData = $"Error serializing data to JSON:\n{e.Message}\n\nRaw data:\n{currentSaveData}";
+                rawJsonData = $"Error serializing save data to JSON:\n{e.Message}";
             }
         }
 

@@ -26,13 +26,14 @@ namespace NekoSerializer
                 return;
             }
 
-            scrollPosition = EditorGUILayout.BeginScrollView(scrollPosition);
-
             var keys = GetDataViewRootKeysForDisplay();
             var paginationInfo = CalculatePagination(keys.Count);
-            DrawPaginationControls(paginationInfo);
-            DrawDataItems(keys, paginationInfo);
 
+            // Keep pagination frozen at the top (outside the scroll view).
+            DrawPaginationControls(paginationInfo, keys.Count);
+
+            scrollPosition = EditorGUILayout.BeginScrollView(scrollPosition);
+            DrawDataItems(keys, paginationInfo);
             EditorGUILayout.EndScrollView();
         }
 
@@ -52,25 +53,75 @@ namespace NekoSerializer
             return (totalPages, startIndex, endIndex);
         }
 
-        private void DrawPaginationControls((int totalPages, int startIndex, int endIndex) paginationInfo)
+        private void DrawPaginationControls((int totalPages, int startIndex, int endIndex) paginationInfo, int totalItems)
         {
             if (paginationInfo.totalPages <= 1) return;
 
-            EditorGUILayout.BeginHorizontal();
-            EditorGUILayout.LabelField($"Page {currentPage + 1} of {paginationInfo.totalPages}", EditorStyles.centeredGreyMiniLabel);
-            EditorGUILayout.EndHorizontal();
+            // Odin-style: "{n} items" then ◀ [page] / total ▶ on one row.
+            const float gap = 6f;
+            const float arrowW = 22f;
 
-            EditorGUILayout.BeginHorizontal();
+            Rect rowRect = GUILayoutUtility.GetRect(1f, EditorGUIUtility.singleLineHeight + 2f, GUILayout.ExpandWidth(true));
+            rowRect.y += 1f;
+            rowRect.height = EditorGUIUtility.singleLineHeight;
+            rowRect.xMin += 2f;
+            rowRect.xMax -= 2f;
 
-            EditorGUI.BeginDisabledGroup(currentPage <= 0);
-            if (GUILayout.Button("Previous")) currentPage--;
-            EditorGUI.EndDisabledGroup();
+            GUIStyle miniLeft;
+            GUIStyle miniCenter;
+#if ODIN_INSPECTOR
+            miniLeft = SirenixGUIStyles.LeftAlignedGreyMiniLabel;
+            miniCenter = SirenixGUIStyles.CenteredGreyMiniLabel;
+#else
+            miniLeft = new GUIStyle(EditorStyles.miniLabel) { alignment = TextAnchor.MiddleLeft };
+            miniCenter = new GUIStyle(EditorStyles.miniLabel) { alignment = TextAnchor.MiddleCenter };
+#endif
 
-            EditorGUI.BeginDisabledGroup(currentPage >= paginationInfo.totalPages - 1);
-            if (GUILayout.Button("Next")) currentPage++;
-            EditorGUI.EndDisabledGroup();
+            var countContent = new GUIContent($"{totalItems} items");
+            float countW = Mathf.Ceil(miniLeft.CalcSize(countContent).x);
 
-            EditorGUILayout.EndHorizontal();
+            var slashContent = new GUIContent($"/ {paginationInfo.totalPages}");
+            float slashW = Mathf.Ceil(miniCenter.CalcSize(slashContent).x) + 4f;
+
+            // Page field width: enough for the largest page number.
+            var maxPageContent = new GUIContent(Mathf.Max(1, paginationInfo.totalPages).ToString());
+            float fieldW = Mathf.Max(26f, Mathf.Ceil(EditorStyles.numberField.CalcSize(maxPageContent).x) + 10f);
+
+            float rightW = arrowW + gap + fieldW + gap + slashW + gap + arrowW;
+            Rect rightRect = new Rect(rowRect.xMax - rightW, rowRect.y, rightW, rowRect.height);
+
+            Rect nextRect = new Rect(rightRect.xMax - arrowW, rightRect.y, arrowW, rightRect.height);
+            Rect slashRect = new Rect(nextRect.xMin - gap - slashW, rightRect.y, slashW, rightRect.height);
+            Rect fieldRect = new Rect(slashRect.xMin - gap - fieldW, rightRect.y, fieldW, rightRect.height);
+            Rect prevRect = new Rect(fieldRect.xMin - gap - arrowW, rightRect.y, arrowW, rightRect.height);
+
+            Rect countRect = new Rect(rowRect.xMin, rowRect.y, Mathf.Max(0f, prevRect.xMin - gap - rowRect.xMin), rowRect.height);
+
+            GUI.Label(countRect, countContent, miniLeft);
+
+            using (new EditorGUI.DisabledScope(currentPage <= 0))
+            {
+                if (GUI.Button(prevRect, "◀"))
+                    currentPage = Mathf.Max(0, currentPage - 1);
+            }
+
+            int pageOneBased = currentPage + 1;
+            EditorGUI.BeginChangeCheck();
+            pageOneBased = EditorGUI.IntField(fieldRect, pageOneBased, EditorStyles.numberField);
+            if (EditorGUI.EndChangeCheck())
+            {
+                pageOneBased = Mathf.Clamp(pageOneBased, 1, paginationInfo.totalPages);
+                currentPage = pageOneBased - 1;
+            }
+
+            GUI.Label(slashRect, slashContent, miniCenter);
+
+            using (new EditorGUI.DisabledScope(currentPage >= paginationInfo.totalPages - 1))
+            {
+                if (GUI.Button(nextRect, "▶"))
+                    currentPage = Mathf.Min(paginationInfo.totalPages - 1, currentPage + 1);
+            }
+
             EditorGUILayout.Space();
         }
 
@@ -97,7 +148,8 @@ namespace NekoSerializer
             bool rootWasJToken = false;
             Func<object, object> rootConvertBack = null;
 
-            if (odinRootValue is JArray || odinRootValue is JObject)
+            bool allowJObjectConversion = odinRootValue is JObject joForOdin && !ShouldRenderJObjectRootAsStructFields(kvp.Key, joForOdin);
+            if (odinRootValue is JArray || allowJObjectConversion)
             {
                 object originalToken = odinRootValue;
                 if (_odinRootConversionByKey.TryGetValue(kvp.Key, out var cached) && ReferenceEquals(cached.Source, odinRootValue) && cached.Converted != null)
@@ -183,11 +235,35 @@ namespace NekoSerializer
             }
 #endif
 
+            // Root special cases.
+            bool isDateTimeRoot = false;
+            DateTime dateTimeRoot = default;
+
+            // Struct/class-like JObject roots should be rendered as fields, not as collections.
+            // This preserves dictionary UI for dictionary-like JObject roots (e.g., string->Vector3 maps).
+            bool isStructLikeJObjectRoot = false;
+            {
+                object raw = kvp.Value;
+                if (raw is JValue jv2)
+                    raw = jv2.Value;
+
+                if (raw is DateTime dt)
+                {
+                    isDateTimeRoot = true;
+                    dateTimeRoot = dt;
+                }
+                else if (raw is JObject jo)
+                {
+                    isStructLikeJObjectRoot = ShouldRenderJObjectRootAsStructFields(kvp.Key, jo);
+                }
+            }
+
             // If this key holds a single value (int/float/string/etc.), show it as a normal inspector field (no foldout).
-            if (IsSingleValue(kvp.Value))
+            // DateTime roots are handled below as a foldable boxgroup.
+            if (!isDateTimeRoot && IsSingleValue(kvp.Value))
             {
                 object updated = kvp.Value;
-                bool changed = DrawEditableAny(ObjectNames.NicifyVariableName(kvp.Key), ref updated, kvp.Key);
+                bool changed = DrawEditableAny(GetRootDisplayName(kvp.Key), ref updated, kvp.Key);
                 if (changed)
                 {
                     stagedSaveData[kvp.Key] = updated;
@@ -207,11 +283,20 @@ namespace NekoSerializer
             EditorGUILayout.BeginVertical(boxStyle);
 #endif
 
-            if (!foldoutStates.ContainsKey(kvp.Key))
-                foldoutStates[kvp.Key] = false;
-
-            // Custom foldout header for collections: show item count + add button.
-            if (TryGetCollectionCount(kvp.Value, out int count))
+            // Custom foldout header.
+            // - Collections: show item count + add button.
+            // - DateTime: show formatted timestamp on the right.
+            // - Struct/class-like JObject: show a normal header (no key/value table).
+            if (isDateTimeRoot)
+            {
+                bool forceUtc = IsUtcDateTimeKey(kvp.Key);
+                DrawRootSummaryHeaderRow(kvp.Key, FormatDateTimeSummary(dateTimeRoot, forceUtc));
+            }
+            else if (isStructLikeJObjectRoot)
+            {
+                DrawRootSummaryHeaderRow(kvp.Key, null);
+            }
+            else if (TryGetCollectionCount(kvp.Value, out int count))
             {
                 bool addClicked;
                 DrawRootCollectionHeaderRow(kvp.Key, count, out addClicked);
@@ -227,18 +312,25 @@ namespace NekoSerializer
             }
             else
             {
-#if ODIN_INSPECTOR
-                foldoutStates[kvp.Key] = SirenixEditorGUI.Foldout(foldoutStates[kvp.Key], ObjectNames.NicifyVariableName(kvp.Key), EditorStyles.foldout);
-#else
-                foldoutStates[kvp.Key] = EditorGUILayout.Foldout(foldoutStates[kvp.Key], ObjectNames.NicifyVariableName(kvp.Key), true);
-#endif
+                // Keep header alignment consistent with other root rows.
+                DrawRootSummaryHeaderRow(kvp.Key, null);
             }
 
             if (foldoutStates[kvp.Key])
             {
-                EditorGUI.indentLevel++;
-                DisplayData(kvp.Key, kvp.Value);
-                EditorGUI.indentLevel--;
+                if (isDateTimeRoot)
+                {
+                    var updated = dateTimeRoot;
+                    if (DrawEditableDateTimeFields(dateTimeRoot, out updated))
+                    {
+                        stagedSaveData[kvp.Key] = updated;
+                        MarkRootDirty(kvp.Key);
+                    }
+                }
+                else
+                {
+                    DisplayData(kvp.Key, kvp.Value);
+                }
             }
 
 #if ODIN_INSPECTOR
@@ -247,82 +339,6 @@ namespace NekoSerializer
             EditorGUILayout.EndVertical();
 #endif
             EditorGUILayout.Space(2);
-        }
-
-        private void DrawRootCollectionHeaderRow(string key, int count, out bool addClicked)
-        {
-            addClicked = false;
-
-            var labelContent = new GUIContent(ObjectNames.NicifyVariableName(key));
-            int totalPages = Mathf.Max(1, Mathf.CeilToInt(count / (float)CollectionItemsPerPage));
-            int page = GetCollectionPage(key);
-            if (page >= totalPages) page = totalPages - 1;
-            if (page < 0) page = 0;
-            _collectionPageByPath[key] = page;
-
-            Rect rowRect = GUILayoutUtility.GetRect(1f, EditorGUIUtility.singleLineHeight + 2f, GUILayout.ExpandWidth(true));
-            rowRect.y += 1f;
-            rowRect.height = EditorGUIUtility.singleLineHeight;
-            rowRect.xMin += 2f;
-            rowRect.xMax -= 2f;
-
-            const float gap = 6f;
-            const float prevW = 50f;
-            const float nextW = 50f;
-            const float plusW = 26f;
-
-            var pageContent = new GUIContent($"Page {page + 1}/{totalPages}");
-            float pageW = Mathf.Ceil(EditorStyles.miniLabel.CalcSize(pageContent).x) + 10f;
-            float centerW = prevW + gap + pageW + gap + nextW;
-
-            var countContent = new GUIContent($"{count} items");
-            float countW = Mathf.Ceil(EditorStyles.miniLabel.CalcSize(countContent).x);
-            float rightW = countW + gap + plusW;
-
-            Rect rightRect = new Rect(rowRect.xMax - rightW, rowRect.y, rightW, rowRect.height);
-            Rect centerRect = new Rect(rowRect.center.x - (centerW * 0.5f), rowRect.y, centerW, rowRect.height);
-
-            // Keep the center controls from overlapping the right group.
-            float maxCenterX = rightRect.xMin - gap - centerRect.width;
-            if (centerRect.x > maxCenterX)
-                centerRect.x = maxCenterX;
-            if (centerRect.x < rowRect.xMin)
-                centerRect.x = rowRect.xMin;
-
-            float leftMaxX = Mathf.Min(centerRect.xMin - gap, rightRect.xMin - gap);
-            Rect leftRect = new Rect(rowRect.xMin, rowRect.y, Mathf.Max(0f, leftMaxX - rowRect.xMin), rowRect.height);
-
-            // Left: foldout
-            if (!foldoutStates.TryGetValue(key, out bool expanded))
-                expanded = false;
-            expanded = EditorGUI.Foldout(leftRect, expanded, labelContent, true);
-            foldoutStates[key] = expanded;
-
-            // Center: Prev / Page / Next (true-centered on the row)
-            Rect prevRect = new Rect(centerRect.x, centerRect.y, prevW, centerRect.height);
-            Rect pageRect = new Rect(prevRect.xMax + gap, centerRect.y, pageW, centerRect.height);
-            Rect nextRect = new Rect(pageRect.xMax + gap, centerRect.y, nextW, centerRect.height);
-
-            using (new EditorGUI.DisabledScope(page <= 0))
-            {
-                if (GUI.Button(prevRect, "Prev"))
-                    _collectionPageByPath[key] = Mathf.Max(0, page - 1);
-            }
-
-            var centeredMiniLabel = new GUIStyle(EditorStyles.miniLabel) { alignment = TextAnchor.MiddleCenter };
-            GUI.Label(pageRect, pageContent, centeredMiniLabel);
-
-            using (new EditorGUI.DisabledScope(page >= totalPages - 1))
-            {
-                if (GUI.Button(nextRect, "Next"))
-                    _collectionPageByPath[key] = Mathf.Min(totalPages - 1, page + 1);
-            }
-
-            // Right: item count + add
-            Rect plusRect = new Rect(rightRect.xMax - plusW, rightRect.y, plusW, rightRect.height);
-            Rect countRect = new Rect(rightRect.x, rightRect.y, Mathf.Max(0f, rightRect.width - plusW - gap), rightRect.height);
-            GUI.Label(countRect, countContent, new GUIStyle(EditorStyles.miniLabel) { alignment = TextAnchor.MiddleLeft });
-            addClicked = GUI.Button(plusRect, "+");
         }
     }
 }
