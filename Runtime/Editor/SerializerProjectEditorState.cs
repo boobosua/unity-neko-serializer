@@ -12,7 +12,7 @@ namespace NekoSerializer
 {
     internal sealed class SerializerProjectEditorState : ScriptableObject
     {
-        internal const string AssetPath = "Assets/Plugins/NekoSerializer/SerializerProjectEditorState.asset";
+        internal const string AssetPath = "Assets/Plugins/NekoSerializer/Editor/SerializerProjectEditorState.asset";
 
 #if ODIN_INSPECTOR
         [ReadOnly]
@@ -108,6 +108,7 @@ namespace NekoSerializer
         {
             EnsureFolder("Assets", "Plugins");
             EnsureFolder("Assets/Plugins", "NekoSerializer");
+            EnsureFolder("Assets/Plugins/NekoSerializer", "Editor");
         }
 
         private static void EnsureFolder(string parent, string folderName)
