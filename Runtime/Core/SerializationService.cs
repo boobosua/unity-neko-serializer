@@ -80,7 +80,7 @@ namespace NekoSerializer
         public static void Save<T>(string key, T data)
         {
             Handler.Save(key, data);
-            var nowUtc = DateTimeService.UtcNow;
+            var nowUtc = TimeService.UtcNow;
             Handler.Save(LastSaveTimeKey, nowUtc);
 
 #if UNITY_EDITOR
