@@ -1,0 +1,16 @@
+{
+    "name": "NekoSerializer.Runtime",
+    "rootNamespace": "NekoSerializer",
+    "references": [
+        "GUID:22a704979ba6f464ea6e8bb476cdcc2b"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

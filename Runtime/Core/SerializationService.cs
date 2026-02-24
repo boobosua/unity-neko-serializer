@@ -275,7 +275,8 @@ namespace NekoSerializer
         {
             try
             {
-                return SerializerProjectEditorState.GetOrCreate().GetEditorCacheKeysCopy();
+                // return SerializerProjectEditorState.GetOrCreate().GetEditorCacheKeysCopy();
+                return null; // Temporarily disable editor cache persistence to avoid issues in certain environments.
             }
             catch
             {
@@ -287,9 +288,10 @@ namespace NekoSerializer
         {
             try
             {
-                var state = SerializerProjectEditorState.GetOrCreate();
-                state.SetEditorCacheKeys(keys ?? new List<string>());
-                state.SaveIfDirty();
+                // var state = SerializerProjectEditorState.GetOrCreate();
+                // state.SetEditorCacheKeys(keys ?? new List<string>());
+                // state.SaveIfDirty();
+                return; // Temporarily disable editor cache persistence to avoid issues in certain environments.
             }
             catch
             {

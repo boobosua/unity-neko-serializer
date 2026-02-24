@@ -1,10 +1,13 @@
 {
-    "name": "NekoSerializer",
+    "name": "NekoSerializer.Editor",
     "rootNamespace": "NekoSerializer",
     "references": [
+        "GUID:d8e217f2b256b0149a1dbf2edca50231",
         "GUID:22a704979ba6f464ea6e8bb476cdcc2b"
     ],
-    "includePlatforms": [],
+    "includePlatforms": [
+        "Editor"
+    ],
     "excludePlatforms": [],
     "allowUnsafeCode": false,
     "overrideReferences": false,
