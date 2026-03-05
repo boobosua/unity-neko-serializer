@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Threading.Tasks;
-using NekoLib.Core;
+using NekoLib.ColorPalette;
 using NekoLib.Extensions;
 using NekoLib.Logger;
 using NekoLib.Services;
