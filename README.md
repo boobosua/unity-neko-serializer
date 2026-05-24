@@ -7,13 +7,13 @@ A save/load serialization system for Unity, backed by [Newtonsoft.Json](https://
 1. Install TRnK.Toolkit via Unity Package Manager:
 
 ```
-https://github.com/boobosua/unity-trnk-toolkit.git
+https://github.com/trnkdev/unity-trnk-toolkit.git
 ```
 
 2. Then add TRnK.Serializer (Newtonsoft.Json must be available — it ships with Unity 2021+):
 
 ```
-https://github.com/boobosua/unity-trnk-serializer.git
+https://github.com/trnkdev/unity-trnk-serializer.git
 ```
 
 ## Configuration
