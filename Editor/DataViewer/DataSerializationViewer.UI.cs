@@ -4,7 +4,7 @@ using System;
 using UnityEditor;
 using UnityEngine;
 
-namespace NekoSerializer
+namespace TRnK.Serializer
 {
 #if ODIN_INSPECTOR
     using Sirenix.Utilities.Editor;
@@ -47,7 +47,7 @@ namespace NekoSerializer
             SirenixEditorGUI.EndHorizontalToolbar();
 #else
             // Use unified tab bar style
-            int next = NekoLib.Core.NekoEditorTabBar.Draw(selectedTab, tabs, 24f);
+            int next = TRnK.Toolkit.EditorTabBar.Draw(selectedTab, tabs, 24f);
             if (next != selectedTab)
             {
                 selectedTab = next;

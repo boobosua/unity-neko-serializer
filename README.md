@@ -1,24 +1,24 @@
-# Neko Serializer
+# TRnK Serializer
 
 A save/load serialization system for Unity, backed by [Newtonsoft.Json](https://www.newtonsoft.com/json). Supports `PlayerPrefs` and JSON-file storage, encryption, async operations, and a fluent data-migration API.
 
 ## Installation
 
-1. Install NekoLib via Unity Package Manager:
+1. Install TRnK.Toolkit via Unity Package Manager:
 
 ```
-https://github.com/boobosua/unity-nekolib.git
+https://github.com/boobosua/unity-trnk-toolkit.git
 ```
 
-2. Then add NekoSerializer (Newtonsoft.Json must be available — it ships with Unity 2021+):
+2. Then add TRnK.Serializer (Newtonsoft.Json must be available — it ships with Unity 2021+):
 
 ```
-https://github.com/boobosua/unity-neko-serializer.git
+https://github.com/boobosua/unity-trnk-serializer.git
 ```
 
 ## Configuration
 
-Create the settings asset once: **Assets → Create → Neko Framework → Serialize → Serializer Settings**, name it `SerializerSettings`, and place it inside a `Resources` folder. If the asset is missing, defaults are used automatically.
+Create the settings asset once: **Assets → Create → TRnK Framework → Serialize → Serializer Settings**, name it `SerializerSettings`, and place it inside a `Resources` folder. If the asset is missing, defaults are used automatically.
 
 | Property | Default | Description |
 |---|---|---|
@@ -30,10 +30,10 @@ Create the settings asset once: **Assets → Create → Neko Framework → Seria
 
 ## Save / Load Usage
 
-All public API is on the static `NSR` class in the `NekoSerializer` namespace.
+All public API is on the static `NSR` class in the `TRnK.Serializer` namespace.
 
 ```csharp
-using NekoSerializer;
+using TRnK.Serializer;
 ```
 
 ### Save & load
@@ -104,7 +104,7 @@ The following Unity value types are serialized / deserialized automatically:
 ## API Reference
 
 ```csharp
-using NekoSerializer;
+using TRnK.Serializer;
 
 NSR.Save<T>(string key, T data)
 NSR.SaveAsync<T>(string key, T data)               // Task
@@ -128,4 +128,4 @@ NSR.LastSaveTimeLocal // DateTime
 ## Requirements
 
 - Unity 2021+ (Newtonsoft.Json shipped by default)
-- NekoLib
+- TRnK.Toolkit

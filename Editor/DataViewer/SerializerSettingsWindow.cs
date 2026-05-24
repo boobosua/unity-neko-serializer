@@ -2,7 +2,7 @@
 using UnityEditor;
 using UnityEngine;
 
-namespace NekoSerializer
+namespace TRnK.Serializer
 {
     public class SerializerSettingsWindow : EditorWindow
     {
@@ -16,7 +16,7 @@ namespace NekoSerializer
         private SerializedProperty _encryptionKeyProp;
         private SerializedProperty _prettyPrintJsonProp;
 
-        [MenuItem("Tools/Neko Serializer/Settings")]
+        [MenuItem("Tools/TRnK/Serializer/Settings")]
         public static void ShowWindow()
         {
             var window = GetWindow<SerializerSettingsWindow>("Serializer Settings");
@@ -51,20 +51,20 @@ namespace NekoSerializer
 
             // Create the directory structure for library use
             string pluginPath = "Assets/Plugins";
-            string NekoSerializerPath = "Assets/Plugins/NekoSerializer";
-            string resourcesPath = "Assets/Plugins/NekoSerializer/Resources";
+            string serializerPath = "Assets/Plugins/TRnK/Serializer";
+            string resourcesPath = "Assets/Plugins/TRnK/Serializer/Resources";
 
             if (!AssetDatabase.IsValidFolder(pluginPath))
                 AssetDatabase.CreateFolder("Assets", "Plugins");
 
-            if (!AssetDatabase.IsValidFolder(NekoSerializerPath))
-                AssetDatabase.CreateFolder("Assets/Plugins", "NekoSerializer");
+            if (!AssetDatabase.IsValidFolder(serializerPath))
+                AssetDatabase.CreateFolder("Assets/Plugins", "TRnK.Serializer");
 
             if (!AssetDatabase.IsValidFolder(resourcesPath))
-                AssetDatabase.CreateFolder("Assets/Plugins/NekoSerializer", "Resources");
+                AssetDatabase.CreateFolder("Assets/Plugins/TRnK/Serializer", "Resources");
 
             // Save the settings asset
-            string assetPath = "Assets/Plugins/NekoSerializer/Resources/SerializerSettings.asset";
+            string assetPath = "Assets/Plugins/TRnK/Serializer/Resources/SerializerSettings.asset";
             AssetDatabase.CreateAsset(_settings, assetPath);
             AssetDatabase.SaveAssets();
             AssetDatabase.Refresh();

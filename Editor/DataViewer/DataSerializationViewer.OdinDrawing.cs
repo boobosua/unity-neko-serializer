@@ -5,7 +5,7 @@ using UnityEditor;
 using UnityEngine;
 using Sirenix.OdinInspector.Editor;
 
-namespace NekoSerializer
+namespace TRnK.Serializer
 {
     public partial class DataSerializationViewer
     {

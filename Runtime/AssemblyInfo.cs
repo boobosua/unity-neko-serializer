@@ -1,3 +1,3 @@
 using System.Runtime.CompilerServices;
 
-[assembly: InternalsVisibleTo("NekoSerializer.Editor")]
+[assembly: InternalsVisibleTo("TRnK.Serializer.Editor")]

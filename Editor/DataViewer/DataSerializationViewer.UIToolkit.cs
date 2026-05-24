@@ -2,7 +2,7 @@
 
 using UnityEngine.UIElements;
 
-namespace NekoSerializer
+namespace TRnK.Serializer
 {
     public partial class DataSerializationViewer
     {

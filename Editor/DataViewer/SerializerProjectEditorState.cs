@@ -8,11 +8,11 @@ using UnityEngine;
 using Sirenix.OdinInspector;
 #endif
 
-namespace NekoSerializer
+namespace TRnK.Serializer
 {
     internal sealed class SerializerProjectEditorState : ScriptableObject
     {
-        internal const string AssetPath = "Assets/Plugins/NekoSerializer/Editor/SerializerProjectEditorState.asset";
+        internal const string AssetPath = "Assets/Plugins/TRnK/Serializer/Editor/SerializerProjectEditorState.asset";
 
 #if ODIN_INSPECTOR
         [ReadOnly]
@@ -107,8 +107,8 @@ namespace NekoSerializer
         private static void EnsureFolders()
         {
             EnsureFolder("Assets", "Plugins");
-            EnsureFolder("Assets/Plugins", "NekoSerializer");
-            EnsureFolder("Assets/Plugins/NekoSerializer", "Editor");
+            EnsureFolder("Assets/Plugins", "TRnK.Serializer");
+            EnsureFolder("Assets/Plugins/TRnK/Serializer", "Editor");
         }
 
         private static void EnsureFolder(string parent, string folderName)

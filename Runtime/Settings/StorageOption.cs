@@ -1,4 +1,4 @@
-namespace NekoSerializer
+namespace TRnK.Serializer
 {
     public enum StorageOption
     {

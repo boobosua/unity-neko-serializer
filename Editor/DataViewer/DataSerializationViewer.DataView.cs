@@ -7,7 +7,7 @@ using Newtonsoft.Json.Linq;
 using UnityEditor;
 using UnityEngine;
 
-namespace NekoSerializer
+namespace TRnK.Serializer
 {
 #if ODIN_INSPECTOR
     using Sirenix.Utilities.Editor;

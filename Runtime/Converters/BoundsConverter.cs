@@ -3,7 +3,7 @@ using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using UnityEngine;
 
-namespace NekoSerializer
+namespace TRnK.Serializer
 {
     /// <summary>
     /// JSON Converter for Unity Bounds using Newtonsoft.Json

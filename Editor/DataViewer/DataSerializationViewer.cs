@@ -8,7 +8,7 @@ using Newtonsoft.Json.Linq;
 using UnityEditor;
 using UnityEngine;
 
-namespace NekoSerializer
+namespace TRnK.Serializer
 {
 #if ODIN_INSPECTOR
     using Sirenix.OdinInspector.Editor;
@@ -152,7 +152,7 @@ namespace NekoSerializer
         }
 #endif
 
-        [MenuItem("Tools/Neko Serializer/Data Serialization Viewer")]
+        [MenuItem("Tools/TRnK/Serializer/Data Serialization Viewer")]
         private static void OpenWindow()
         {
             GetWindow<DataSerializationViewer>("Data Serialization Viewer").Show();

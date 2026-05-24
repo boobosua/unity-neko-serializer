@@ -1,10 +1,10 @@
 using System;
 using System.Collections.Generic;
 using System.Text;
-using NekoLib.Logger;
+using TRnK.Logger;
 using Newtonsoft.Json;
 
-namespace NekoSerializer
+namespace TRnK.Serializer
 {
     internal abstract class DataSerializationHandler
     {

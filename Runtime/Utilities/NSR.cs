@@ -1,7 +1,7 @@
 using System;
 using System.Threading.Tasks;
 
-namespace NekoSerializer
+namespace TRnK.Serializer
 {
     public static class NSR
     {

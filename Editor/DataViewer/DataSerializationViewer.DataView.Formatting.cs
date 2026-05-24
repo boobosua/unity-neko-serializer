@@ -3,7 +3,7 @@
 using System;
 using System.Globalization;
 
-namespace NekoSerializer
+namespace TRnK.Serializer
 {
     public partial class DataSerializationViewer
     {

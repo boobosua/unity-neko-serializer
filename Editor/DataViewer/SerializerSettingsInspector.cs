@@ -2,7 +2,7 @@
 using UnityEditor;
 using UnityEngine;
 
-namespace NekoSerializer
+namespace TRnK.Serializer
 {
     [CustomEditor(typeof(SerializerSettings))]
     public class SerializerSettingsInspector : Editor

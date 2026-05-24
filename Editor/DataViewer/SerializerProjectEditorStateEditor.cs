@@ -8,7 +8,7 @@ using Sirenix.OdinInspector.Editor;
 using Sirenix.Utilities.Editor;
 #endif
 
-namespace NekoSerializer
+namespace TRnK.Serializer
 {
 #if ODIN_INSPECTOR
     [CustomEditor(typeof(SerializerProjectEditorState))]

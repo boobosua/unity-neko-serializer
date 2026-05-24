@@ -5,7 +5,7 @@ using System.Collections.Generic;
 using Newtonsoft.Json.Linq;
 using UnityEngine;
 
-namespace NekoSerializer
+namespace TRnK.Serializer
 {
     public partial class DataSerializationViewer
     {

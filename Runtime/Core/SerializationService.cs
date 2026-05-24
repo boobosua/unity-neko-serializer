@@ -2,14 +2,14 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Threading.Tasks;
-using NekoLib.ColorPalette;
-using NekoLib.Extensions;
-using NekoLib.Logger;
-using NekoLib.Services;
-using NekoLib.Utilities;
+using TRnK.ColorPalette;
+using TRnK.Extensions;
+using TRnK.Logger;
+using TRnK.Services;
+using TRnK.Utilities;
 using UnityEngine;
 
-namespace NekoSerializer
+namespace TRnK.Serializer
 {
     /// <summary>
     /// Core save/load service with separated memory and storage operations.

@@ -1,8 +1,8 @@
 using UnityEngine;
 
-namespace NekoSerializer
+namespace TRnK.Serializer
 {
-    [CreateAssetMenu(fileName = "SerializerSettings", menuName = "Neko Framework/Serialize/Serializer Settings")]
+    [CreateAssetMenu(fileName = "SerializerSettings", menuName = "TRnK Framework/Serialize/Serializer Settings")]
     public class SerializerSettings : ScriptableObject
     {
         [Header("Save Settings")]

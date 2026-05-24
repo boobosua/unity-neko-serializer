@@ -1,6 +1,6 @@
 using UnityEngine;
 
-namespace NekoSerializer
+namespace TRnK.Serializer
 {
     /// <summary>
     /// Handles saving and loading data using PlayerPrefs.
