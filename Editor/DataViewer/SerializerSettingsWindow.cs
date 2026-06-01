@@ -1,4 +1,5 @@
 #if UNITY_EDITOR
+using TRnK.Toolkit;
 using UnityEditor;
 using UnityEngine;
 
@@ -49,25 +50,10 @@ namespace TRnK.Serializer
         {
             _settings = CreateInstance<SerializerSettings>();
 
-            // Create the directory structure for library use
-            string pluginPath = "Assets/Plugins";
-            string serializerPath = "Assets/Plugins/TRnK/Serializer";
-            string resourcesPath = "Assets/Plugins/TRnK/Serializer/Resources";
-
-            if (!AssetDatabase.IsValidFolder(pluginPath))
-                AssetDatabase.CreateFolder("Assets", "Plugins");
-
-            if (!AssetDatabase.IsValidFolder(serializerPath))
-                AssetDatabase.CreateFolder("Assets/Plugins", "TRnK.Serializer");
-
-            if (!AssetDatabase.IsValidFolder(resourcesPath))
-                AssetDatabase.CreateFolder("Assets/Plugins/TRnK/Serializer", "Resources");
-
-            // Save the settings asset
-            string assetPath = "Assets/Plugins/TRnK/Serializer/Resources/SerializerSettings.asset";
+            const string assetPath = "Assets/Plugins/TRnK/Serializer/Resources/SerializerSettings.asset";
+            EditorAssetUtils.EnsureFolderPath("Assets/Plugins/TRnK/Serializer/Resources");
             AssetDatabase.CreateAsset(_settings, assetPath);
-            AssetDatabase.SaveAssets();
-            AssetDatabase.Refresh();
+            EditorAssetUtils.SaveAndRefresh();
 
             Debug.Log($"[SaveLoadSettings] Created default settings at: {assetPath}");
         }

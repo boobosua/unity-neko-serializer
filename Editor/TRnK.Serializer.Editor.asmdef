@@ -3,7 +3,8 @@
     "rootNamespace": "TRnK.Serializer",
     "references": [
         "GUID:d8e217f2b256b0149a1dbf2edca50231",
-        "GUID:22a704979ba6f464ea6e8bb476cdcc2b"
+        "GUID:22a704979ba6f464ea6e8bb476cdcc2b",
+        "GUID:4a9d13e8dda05384db63b677ccc344f0"
     ],
     "includePlatforms": [
         "Editor"

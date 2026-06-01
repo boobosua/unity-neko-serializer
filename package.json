@@ -1,11 +1,11 @@
 {
   "name": "com.trnkdev.unityserializer",
-  "version": "0.7.0",
+  "version": "0.7.1",
   "displayName": "TRnK Serializer",
   "description": "This is a package containing a save load system using the Newtonsoft.Json library for Unity game engine.",
   "unity": "2020.3",
   "dependencies": {
-    "com.trnkdev.unitytoolkit": "2.5.0",
+    "com.trnkdev.unitytoolkit": "2.5.1",
     "com.unity.nuget.newtonsoft-json": "3.2.2"
   },
   "author": {

@@ -1,6 +1,7 @@
 #if UNITY_EDITOR
 
 using System.Collections.Generic;
+using TRnK.Toolkit;
 using UnityEditor;
 using UnityEngine;
 
@@ -40,8 +41,7 @@ namespace TRnK.Serializer
 
             asset = CreateInstance<SerializerProjectEditorState>();
             AssetDatabase.CreateAsset(asset, AssetPath);
-            AssetDatabase.SaveAssets();
-            AssetDatabase.Refresh();
+            EditorAssetUtils.SaveAndRefresh();
 
             s_cached = asset;
             return asset;
@@ -105,20 +105,7 @@ namespace TRnK.Serializer
         }
 
         private static void EnsureFolders()
-        {
-            EnsureFolder("Assets", "Plugins");
-            EnsureFolder("Assets/Plugins", "TRnK.Serializer");
-            EnsureFolder("Assets/Plugins/TRnK/Serializer", "Editor");
-        }
-
-        private static void EnsureFolder(string parent, string folderName)
-        {
-            string full = parent.EndsWith("/") ? parent + folderName : parent + "/" + folderName;
-            if (AssetDatabase.IsValidFolder(full))
-                return;
-
-            AssetDatabase.CreateFolder(parent, folderName);
-        }
+            => EditorAssetUtils.EnsureFolderPath("Assets/Plugins/TRnK/Serializer/Editor");
     }
 }
 
